@@ -53,7 +53,7 @@ export default function Cart() {
     setCouponError('');
   };
 
-  const crossSell = products.filter((p) => !items.some((i) => i.productId === p.productId)).slice(0, 3);
+  const crossSell = products.filter((p) => !items.some((i) => i.productId === p.id)).slice(0, 3);
 
   if (items.length === 0) {
     return (

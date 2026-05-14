@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, useInView, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
+import { motion, useInView, AnimatePresence } from 'framer-motion';
 import { useCart } from '@/context/CartContext';
 import { stages } from '@/data/stages';
 import { reviews } from '@/data/reviews';
@@ -8,8 +8,8 @@ import { products } from '@/data/products';
 import LoadingScreen from '@/components/LoadingScreen';
 import {
   ChevronDown, Brain, Droplets, Gem, Sliders, Wifi, Calendar,
-  Shield, Truck, Award, Star, ArrowRight, Minus, Plus, ChevronUp,
-  RotateCw, ZoomIn, Layers, Eye, Play, Pause, MousePointer
+  Shield, Truck, Award, Star, ArrowRight, ChevronUp,
+  RotateCw, ZoomIn, Layers, Eye, Play, MousePointer
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -24,7 +24,10 @@ function ParticleBackground() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    let w: number, h: number;
+    let w: number = window.innerWidth;
+    let h: number = window.innerHeight;
+    canvas.width = w;
+    canvas.height = h;
     const particles: { x: number; y: number; r: number; dx: number; dy: number; alpha: number }[] = [];
     const COUNT = 80;
 
@@ -32,7 +35,6 @@ function ParticleBackground() {
       w = canvas.width = window.innerWidth;
       h = canvas.height = window.innerHeight;
     };
-    resize();
 
     for (let i = 0; i < COUNT; i++) {
       particles.push({
