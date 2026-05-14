@@ -1,0 +1,138 @@
+export interface PurificationStage {
+  id: number;
+  name: string;
+  number: number;
+  description: string;
+  color: string;
+  technicalDetail: string;
+  contaminantRemoved: string;
+}
+
+export const stages: PurificationStage[] = [
+  {
+    id: 1,
+    name: "Three Ball Valve",
+    number: 1,
+    description: "Influent water entry — controls raw water intake",
+    color: "#0066CC",
+    technicalDetail: "3-way brass ball valve with 1/2\" NPT connection. Controls raw water inlet flow rate up to 2 L/min.",
+    contaminantRemoved: "None — flow control",
+  },
+  {
+    id: 2,
+    name: "PP Cotton Sediment",
+    number: 2,
+    description: "Removes dust, rust, sand particles down to 5 microns",
+    color: "#4A90D9",
+    technicalDetail: "5-micron melt-blown polypropylene filter, 10\" standard size. Flow rate: 8 L/min at 2 bar.",
+    contaminantRemoved: "Dust, rust, sand, sediment >5μm",
+  },
+  {
+    id: 3,
+    name: "TDS In Sensor",
+    number: 3,
+    description: "Measures incoming water TDS in real-time",
+    color: "#00B4D8",
+    technicalDetail: "Conductivity-based TDS sensor, range 0-2000 ppm, accuracy ±2%. Wi-Fi enabled for app monitoring.",
+    contaminantRemoved: "None — TDS monitoring",
+  },
+  {
+    id: 4,
+    name: "Activated Carbon",
+    number: 4,
+    description: "Removes chlorine, odors, organic compounds",
+    color: "#5C6B73",
+    technicalDetail: "Coconut shell GAC (Granular Activated Carbon) with iodine number >1000. Removes chlorine, VOCs, pesticides.",
+    contaminantRemoved: "Chlorine, VOCs, odors, pesticides",
+  },
+  {
+    id: 5,
+    name: "Low Pressure Switch",
+    number: 5,
+    description: "Ensures adequate water pressure for membrane operation",
+    color: "#E63946",
+    technicalDetail: "Pressure switch with 0.5-3.5 bar operating range. Auto-shutoff below minimum pressure.",
+    contaminantRemoved: "None — pressure safety",
+  },
+  {
+    id: 6,
+    name: "Booster Pump",
+    number: 6,
+    description: "Increases water pressure to 80-100 PSI for membrane efficiency",
+    color: "#00B4D8",
+    technicalDetail: "24V DC diaphragm pump, max pressure 100 PSI, flow rate 1.5 L/min. Noise level <35 dB.",
+    contaminantRemoved: "None — pressure boost",
+  },
+  {
+    id: 7,
+    name: "Y Divider (AI Core)",
+    number: 7,
+    description: "Smart flow divider — AI decides NF vs RO split ratio",
+    color: "#7B61FF",
+    technicalDetail: "AI-powered 3-way valve with stepper motor control. TDS-based algorithm decides NF/RO split (0-100%).",
+    contaminantRemoved: "None — AI routing decision",
+  },
+  {
+    id: 8,
+    name: "Solenoid Valves",
+    number: 8,
+    description: "Electric flow control — precise valve actuation",
+    color: "#9B5DE5",
+    technicalDetail: "24V DC solenoid valves, response time <100ms, brass body with PTFE seals. Controls NF/RO path flow.",
+    contaminantRemoved: "None — flow control",
+  },
+  {
+    id: 9,
+    name: "RO Membrane",
+    number: 9,
+    description: "Reverse Osmosis — removes dissolved solids, heavy metals",
+    color: "#00E5FF",
+    technicalDetail: "Thin-film composite RO membrane, 0.0001μm pore size. TDS rejection: 96-98%. Flow: 15 L/hr.",
+    contaminantRemoved: "Dissolved salts, heavy metals, fluoride, arsenic",
+  },
+  {
+    id: 10,
+    name: "NF Membrane",
+    number: 10,
+    description: "Nanofiltration — retains essential Ca, Mg minerals",
+    color: "#2EC4B6",
+    technicalDetail: "Polyamide NF membrane, 0.001μm pore size. Selective rejection: retains Ca²⁺, Mg²⁺, removes contaminants.",
+    contaminantRemoved: "Bacteria, viruses, partial TDS reduction",
+  },
+  {
+    id: 11,
+    name: "Water Mixer",
+    number: 11,
+    description: "Blends NF + RO outputs for optimal mineral balance",
+    color: "#9B5DE5",
+    technicalDetail: "Stainless steel mixing chamber with turbulence generator. Blends RO (0 TDS) and NF (retained minerals) streams.",
+    contaminantRemoved: "None — blending stage",
+  },
+  {
+    id: 12,
+    name: "Active Minerals",
+    number: 12,
+    description: "Adds Ca²⁺ and Mg²⁺ for health benefits",
+    color: "#FFD700",
+    technicalDetail: "Food-grade mineral cartridge with calcium and magnesium pellets. Adds 30-50 ppm essential minerals.",
+    contaminantRemoved: "None — mineral addition",
+  },
+  {
+    id: 13,
+    name: "UF Membrane",
+    number: 13,
+    description: "Final bacteria and virus removal",
+    color: "#F8F9FA",
+    technicalDetail: "Hollow fiber UF membrane, 0.01μm pore size. 99.99% bacteria removal. No wastewater produced.",
+    contaminantRemoved: "Bacteria, viruses, cysts >0.01μm",
+  },
+  {
+    id: 14,
+    name: "TDS Out Sensor",
+    number: 14,
+    description: "Verifies output TDS meets your custom setting",
+    color: "#90E0EF",
+    technicalDetail: "Conductivity-based TDS sensor, range 0-500 ppm, accuracy ±1%. Feedback loop to AI controller.",
+    contaminantRemoved: "None — output verification",
+  },
+];
