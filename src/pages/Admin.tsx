@@ -11,6 +11,7 @@ import AdminCoupons from './admin/Coupons';
 import AdminMarketing from './admin/Marketing';
 import AdminSettings from './admin/Settings';
 import AdminReports from './admin/Reports';
+import AdminLeads from './admin/Leads';
 import {
   LayoutDashboard, Package, Folder, Filter, ChevronRight, ChevronDown,
   SlidersHorizontal, Building2, Star, FileText, ShoppingBag, Repeat,
@@ -51,6 +52,7 @@ const sectionTitles = {
   'reports-sales': 'Sales Report',
   'reports-products': 'Products Report',
   'reports-customers': 'Customers Report',
+  'leads': 'Leads',
 };
 
 /* Breadcrumb trails for every section */
@@ -86,6 +88,7 @@ const breadcrumbMap = {
   'reports-sales': ['Home', 'Reports', 'Sales'],
   'reports-products': ['Home', 'Reports', 'Products'],
   'reports-customers': ['Home', 'Reports', 'Customers'],
+  'leads': ['Home', 'Customers', 'Leads'],
 };
 
 /* Admin Layout Shell — sidebar, top bar, breadcrumbs, section router */
@@ -163,6 +166,8 @@ export default function Admin() {
       case 'customer-groups':
       case 'custom-fields':
         return <AdminCustomers section={activeSection} />;
+      case 'leads':
+        return <AdminLeads />;
       case 'categories':
       case 'manufacturers':
       case 'reviews':
@@ -323,12 +328,13 @@ export default function Admin() {
           )}
 
           {/* Customers */}
-          {(matches('Customers') || matches('Customer Groups') || matches('Custom Fields')) && (
+          {(matches('Customers') || matches('Customer Groups') || matches('Custom Fields') || matches('Leads')) && (
             <>
               <div className={headerClass}>Customers</div>
               <MenuItem section="customers" icon={Users} label="Customers" />
               <MenuItem section="customer-groups" icon={UsersRound} label="Customer Groups" />
               <MenuItem section="custom-fields" icon={FormInput} label="Custom Fields" />
+              <MenuItem section="leads" icon={Mail} label="Leads" />
             </>
           )}
 

@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Pencil, Trash2, Plus, Search, Filter, ChevronLeft, ChevronRight,
   ChevronDown, X, Upload, Image as ImageIcon,
@@ -107,8 +107,56 @@ export default function Products() {
   const [discRows, setDiscRows] = useState([]);
   const [specRows, setSpecRows] = useState([]);
   const [addImages, setAddImages] = useState([]);
-  const [newImageUrl, setNewImageUrl] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState(null);
+
+  /* ────── Category dropdown from localStorage ────── */
+  const [availableCategories, setAvailableCategories] = useState(CATEGORIES);
+  useEffect(() => {
+    try {
+      const cats = JSON.parse(localStorage.getItem('admin_categories') || '[]');
+      if (cats.length > 0) {
+        setAvailableCategories(cats.map(c => c.name));
+      } else {
+        setAvailableCategories(CATEGORIES);
+      }
+    } catch {
+      setAvailableCategories(CATEGORIES);
+    }
+  }, []);
+
+  /* ────── File input refs for image upload ────── */
+  const primaryImageRef = useRef(null);
+  const galleryImageRef = useRef(null);
+
+  /* ────── Image upload handlers (FileReader -> base64) ────── */
+  function handlePrimaryImageUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setForm(prev => ({ ...prev, image: ev.target.result }));
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+  function handleGalleryImageUpload(e) {
+    const files = Array.from(e.target.files || []);
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        setAddImages(prev => [...prev, { url: ev.target.result, sortOrder: String((prev.length + 1) * 10) }]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  }
+  function handleRemovePrimaryImage() {
+    setForm(prev => ({ ...prev, image: '' }));
+  }
+  const IR = {
+    rem: i => setAddImages(p => p.filter((_, x) => x !== i)),
+    updSort: (i, v) => setAddImages(p => { const n = [...p]; n[i] = { ...n[i], sortOrder: v }; return n; })
+  };
 
   /* ────── Helpers ────── */
   function refresh() { setProductsState(getProducts()); setRefreshKey(k => k + 1); }
@@ -140,12 +188,12 @@ export default function Products() {
   function openAdd() {
     setEditingId(null);
     setForm({ name:'', description:'', metaTagTitle:'', metaTagDescription:'', metaTagKeywords:'', productTags:'', model:'', sku:'', upc:'', ean:'', jan:'', isbn:'', mpn:'', price:'', cost:'', quantity:'', minimum:'1', subtractStock:true, outOfStockStatus:'Out of Stock', requiresShipping:true, dateAvailable:'', length:'', width:'', height:'', weight:'', status:'Enabled', sortOrder:'0', categories:[], manufacturer:'', filters:'', seoKeyword:'', image:'' });
-    setAttrRows([]); setOptRows([]); setDiscRows([]); setSpecRows([]); setAddImages([]); setNewImageUrl(''); setActiveTab('General'); setShowModal(true);
+    setAttrRows([]); setOptRows([]); setDiscRows([]); setSpecRows([]); setAddImages([]); setActiveTab('General'); setShowModal(true);
   }
   function openEdit(product) {
     setEditingId(product.id);
     setForm({ name:product.name||'', description:product.description||'', metaTagTitle:product.metaTagTitle||'', metaTagDescription:product.metaTagDescription||'', metaTagKeywords:product.metaTagKeywords||'', productTags:product.productTags||'', model:product.model||'', sku:product.sku||'', upc:product.upc||'', ean:product.ean||'', jan:product.jan||'', isbn:product.isbn||'', mpn:product.mpn||'', price:product.price!=null?String(product.price):'', cost:product.cost!=null?String(product.cost):'', quantity:product.quantity!=null?String(product.quantity):'', minimum:String(product.minimum||'1'), subtractStock:product.subtractStock!==false, outOfStockStatus:product.outOfStockStatus||'Out of Stock', requiresShipping:product.requiresShipping!==false, dateAvailable:product.dateAvailable||'', length:product.length||'', width:product.width||'', height:product.height||'', weight:product.weight||'', status:product.status||'Enabled', sortOrder:String(product.sortOrder||'0'), categories:product.categories||[], manufacturer:product.manufacturer||'', filters:product.filters||'', seoKeyword:product.seoKeyword||'', image:product.image||'' });
-    setAttrRows(product.attributes||[]); setOptRows(product.options||[]); setDiscRows(product.discounts||[]); setSpecRows(product.specials||[]); setAddImages(product.additionalImages||[]); setNewImageUrl(''); setActiveTab('General'); setShowModal(true);
+    setAttrRows(product.attributes||[]); setOptRows(product.options||[]); setDiscRows(product.discounts||[]); setSpecRows(product.specials||[]); setAddImages(product.additionalImages||[]); setActiveTab('General'); setShowModal(true);
   }
   function handleSave() {
     saveProduct({ ...form, price:parseFloat(form.price)||0, cost:parseFloat(form.cost)||0, quantity:parseInt(form.quantity)||0, minimum:parseInt(form.minimum)||1, length:parseFloat(form.length)||0, width:parseFloat(form.width)||0, height:parseFloat(form.height)||0, weight:parseFloat(form.weight)||0, sortOrder:parseInt(form.sortOrder)||0, image:form.image||'https://via.placeholder.com/40', category:form.categories&&form.categories.length>0?form.categories[0]:'', attributes:attrRows, options:optRows, discounts:discRows, specials:specRows, additionalImages:addImages }, editingId);
@@ -162,7 +210,7 @@ export default function Products() {
   const OR = { add:() => setOptRows(p => [...p,{name:'',type:'select',required:false,values:[]}]), upd:(i,f,v) => setOptRows(p => { const n=[...p]; n[i]={...n[i],[f]:v}; return n; }), rem:i => setOptRows(p => p.filter((_,x) => x !== i)), addVal:i => setOptRows(p => { const n=[...p]; n[i]={...n[i],values:[...(n[i].values||[]),{name:'',quantity:'',price:''}]}; return n; }), updVal:(ri,vi,f,v) => setOptRows(p => { const n=[...p]; const vals=[...n[ri].values]; vals[vi]={...vals[vi],[f]:v}; n[ri]={...n[ri],values:vals}; return n; }), remVal:(ri,vi) => setOptRows(p => { const n=[...p]; n[ri]={...n[ri],values:(n[ri].values||[]).filter((_,x) => x !== vi)}; return n; }) };
   const DR = { add:() => setDiscRows(p => [...p,{customerGroup:'',quantity:'',priority:'',price:'',dateStart:'',dateEnd:''}]), upd:(i,f,v) => setDiscRows(p => { const n=[...p]; n[i]={...n[i],[f]:v}; return n; }), rem:i => setDiscRows(p => p.filter((_,x) => x !== i)) };
   const SR = { add:() => setSpecRows(p => [...p,{customerGroup:'',priority:'',price:'',dateStart:'',dateEnd:''}]), upd:(i,f,v) => setSpecRows(p => { const n=[...p]; n[i]={...n[i],[f]:v}; return n; }), rem:i => setSpecRows(p => p.filter((_,x) => x !== i)) };
-  const IR = { add:() => { if (!newImageUrl.trim()) return; setAddImages(p => [...p,{url:newImageUrl.trim(),sortOrder:String((p.length+1)*10)}]); setNewImageUrl(''); }, rem:i => setAddImages(p => p.filter((_,x) => x !== i)), updSort:(i,v) => setAddImages(p => { const n=[...p]; n[i]={...n[i],sortOrder:v}; return n; }) };
+  /* image helpers moved above */
 
   /* ═══════════════════════════════════════════════════════════════
      RENDER
@@ -194,7 +242,7 @@ export default function Products() {
               <div><label className={labelCls}>Quantity</label><input type="text" value={filterQty} onChange={e => setFilterQty(e.target.value)} placeholder="Quantity" className={inputCls} /></div>
             </div>
             <div className="grid grid-cols-5 gap-3">
-              <div><label className={labelCls}>Categories</label><select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className={inputCls}><option value="">-- All Categories --</option><option value="Water Purifiers">Water Purifiers</option><option value="Smart RO">&nbsp;&nbsp;&nbsp;Smart RO</option><option value="Components">&nbsp;&nbsp;&nbsp;Components</option><option value="Filters">Filters</option><option value="Membranes">Membranes</option><option value="Accessories">Accessories</option><option value="AMC Plans">AMC Plans</option></select></div>
+              <div><label className={labelCls}>Categories</label><select value={filterCategory} onChange={e => setFilterCategory(e.target.value)} className={inputCls}><option value="">-- All Categories --</option>{availableCategories.map(cat => (<option key={cat} value={cat}>{cat}</option>))}</select></div>
               <div><label className={labelCls}>Manufacturer</label><select className={inputCls}><option value="">-- None --</option></select></div>
               <div><label className={labelCls}>Supplier</label><select className={inputCls}><option value="">-- None --</option></select></div>
               <div><label className={labelCls}>Status</label><select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className={inputCls}><option value="">-- All --</option><option value="Enabled">Enabled</option><option value="Disabled">Disabled</option></select></div>
@@ -314,6 +362,22 @@ export default function Products() {
                       onChange={(e) => setForm({ ...form, name: e.target.value })}
                       className={inputCls}
                     />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Category</label>
+                    <select
+                      value={form.category || ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setForm(prev => ({ ...prev, category: val, categories: val ? [val] : [] }));
+                      }}
+                      className={inputCls}
+                    >
+                      <option value="">-- Select Category --</option>
+                      {availableCategories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className={labelCls}>Description</label>
@@ -577,7 +641,7 @@ export default function Products() {
                   <div>
                     <label className={labelCls}>Categories</label>
                     <div className="bg-white/[0.03] border border-white/[0.08] rounded-lg p-3 space-y-1.5">
-                      {CATEGORIES.map((cat) => (
+                      {availableCategories.map((cat) => (
                         <label key={cat} className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer hover:text-white transition-colors">
                           <input
                             type="checkbox"
@@ -925,54 +989,81 @@ export default function Products() {
               {/* ─────────── Tab 8: Image ─────────── */}
               {activeTab === 'Image' && (
                 <div className="space-y-4">
+                  {/* Primary Image Upload */}
                   <div>
                     <label className={labelCls}>Primary Image</label>
                     <div className="flex items-center gap-4">
-                      <div className="w-32 h-32 bg-white/[0.04] border border-white/[0.1] rounded-lg flex items-center justify-center overflow-hidden">
-                        {form.image ? (
-                          <img
-                            src={form.image}
-                            alt=""
-                            className="w-full h-full object-cover"
-                            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                          />
-                        ) : (
-                          <ImageIcon size={32} className="text-gray-600" />
-                        )}
-                      </div>
-                      <div className="flex-1 space-y-2">
-                        <input
-                          type="text"
-                          value={form.image || ''}
-                          onChange={(e) => setForm({ ...form, image: e.target.value })}
-                          placeholder="Image URL"
-                          className={inputCls}
-                        />
+                      {/* Upload zone / Preview */}
+                      {form.image ? (
+                        <div className="space-y-2">
+                          <div className="w-32 h-32 bg-white/[0.04] border border-white/[0.1] rounded-lg flex items-center justify-center overflow-hidden">
+                            <img
+                              src={form.image}
+                              alt="Primary"
+                              className="w-full h-full object-cover"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
+                          </div>
+                          <button
+                            onClick={() => primaryImageRef.current?.click()}
+                            className="w-full text-xs text-[#D4AF37] hover:text-[#e0be4f] border border-[#D4AF37]/30 px-2 py-1 rounded transition-colors"
+                          >
+                            Change Image
+                          </button>
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => primaryImageRef.current?.click()}
+                          className="w-32 h-32 border-2 border-dashed border-white/[0.15] rounded-lg flex flex-col items-center justify-center gap-1 cursor-pointer hover:border-[#D4AF37]/50 hover:bg-white/[0.03] transition-colors"
+                        >
+                          <ImageIcon size={24} className="text-gray-500" />
+                          <span className="text-[10px] text-gray-500 text-center px-1">Click to Upload</span>
+                        </div>
+                      )}
+                      {/* Hidden file input */}
+                      <input
+                        ref={primaryImageRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handlePrimaryImageUpload}
+                        className="hidden"
+                      />
+                      <div className="flex-1 space-y-1">
+                        <p className="text-xs text-gray-400">
+                          Click the box or "Change Image" to upload.
+                        </p>
                         <p className="text-xs text-gray-500">
-                          Enter an image URL or use a placeholder
+                          Supports JPG, PNG, GIF, WEBP. Max 5MB recommended.
                         </p>
                       </div>
                     </div>
                   </div>
+
+                  {/* Gallery Images Upload */}
                   <div className="border-t border-white/[0.06] pt-4">
                     <label className={labelCls}>Additional Images</label>
+                    {/* Upload button */}
                     <div className="flex items-center gap-2 mb-3">
-                      <input
-                        type="text"
-                        value={newImageUrl}
-                        onChange={(e) => setNewImageUrl(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && addImageUrl()}
-                        placeholder="Image URL"
-                        className={inputCls + ' flex-1'}
-                      />
                       <button
-                        onClick={addImageUrl}
+                        onClick={() => galleryImageRef.current?.click()}
                         className="inline-flex items-center gap-1 text-sm text-[#D4AF37] hover:text-[#e0be4f] border border-[#D4AF37]/30 px-3 py-2 rounded transition-colors"
                       >
                         <Plus size={14} />
-                        Add Image
+                        Upload Images
                       </button>
+                      <span className="text-xs text-gray-500">
+                        Click to select multiple images
+                      </span>
+                      <input
+                        ref={galleryImageRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        onChange={handleGalleryImageUpload}
+                        className="hidden"
+                      />
                     </div>
+                    {/* Gallery grid */}
                     {addImages.length > 0 && (
                       <div className="grid grid-cols-4 gap-3">
                         {addImages.map((img, i) => (
@@ -988,12 +1079,12 @@ export default function Products() {
                             <input
                               type="text"
                               value={img.sortOrder}
-                              onChange={(e) => updateAddImageSort(i, e.target.value)}
+                              onChange={(e) => IR.updSort(i, e.target.value)}
                               placeholder="Sort Order"
                               className={inputCls + ' text-xs py-1'}
                             />
                             <button
-                              onClick={() => removeAddImage(i)}
+                              onClick={() => IR.rem(i)}
                               className="w-full text-xs text-red-400 hover:bg-red-500/10 py-1 rounded transition-colors flex items-center justify-center gap-1"
                             >
                               <Trash2 size={12} />
