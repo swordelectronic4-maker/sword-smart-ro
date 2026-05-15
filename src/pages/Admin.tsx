@@ -2,2326 +2,980 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  LayoutDashboard,
-  ShoppingBag,
-  Package,
-  Users,
-  Phone,
-  Tag,
-  BarChart3,
-  Settings,
-  Search,
-  LogOut,
-  Menu,
-  X,
-  Pencil,
-  Trash2,
-  Plus,
-  ChevronLeft,
-  ChevronRight,
-  IndianRupee,
-  TrendingUp,
-  TrendingDown,
-  Eye,
-  Ban,
-  CheckCircle,
-  XCircle,
-  Filter,
-  Star,
-  AlertTriangle,
-  ChevronDown,
+  LayoutDashboard, ShoppingBag, Package, Users, Phone, Tag,
+  BarChart3, Settings, Search, LogOut, Menu, X, Pencil, Trash2,
+  Plus, IndianRupee, Eye, Ban, CheckCircle, XCircle, Star, AlertTriangle,
+  ChevronDown, Truck, CreditCard, Percent, Bell, Archive, Download, Upload, Copy, Filter
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { formatINR, formatINRShort, formatCompactINR } from '@/lib/currency';
+import { formatINR, formatINRShort, formatCompactINR, calculateDiscountPercent } from '@/lib/currency';
+import { getProducts, saveProducts, getOrders, saveOrders, getUsers } from '@/services/dataStore';
+import { getCoupons, addCoupon, updateCoupon, deleteCoupon, getCouponAnalytics } from '@/services/couponEngine';
+import { getLeads, addLead, updateLeadStatus, updateLead, assignLead, addLeadNote, deleteLead, getLeadAnalytics, searchLeads, exportLeadsCSV } from '@/services/leadCRM';
+import { syncInventoryWithProducts, getLowStockItems, getOutOfStockItems, getAvailableStock, generateSKU } from '@/services/inventoryService';
+import { getAllOrders as getPaymentOrders, getPaymentStatusCounts, isRazorpayConfigured } from '@/services/razorpayService';
+import { getAllShipments, getShipmentAnalytics, createShipment, getShipmentByOrder } from '@/services/shiprocketService';
 
 // ═══════════════════════════════════════════════════════════════
-// DATA LAYER - Safe localStorage helpers
+// HELPERS
 // ═══════════════════════════════════════════════════════════════
 
 function safeParse(str, fallback) {
-  try {
-    if (!str || str === 'undefined' || str === 'null') return fallback;
-    const parsed = JSON.parse(str);
-    return Array.isArray(parsed) ? parsed : fallback;
-  } catch {
-    return fallback;
-  }
+  try { if (!str || str === 'undefined' || str === 'null') return fallback; const p = JSON.parse(str); return Array.isArray(p) ? p : fallback; } catch { return fallback; }
 }
 
-function safeNum(val) {
-  try {
-    const n = Number(val);
-    return isNaN(n) ? 0 : n;
-  } catch {
-    return 0;
-  }
+function safe(fn, fallback) { try { return fn(); } catch { return fallback; } }
+
+function todayStr() { return new Date().toISOString().split('T')[0]; }
+
+function nowISO() { return new Date().toISOString(); }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function getStatusColor(s) {
+  const c = { pending: 'bg-yellow-500/20 text-yellow-400', processing: 'bg-blue-500/20 text-blue-400', shipped: 'bg-purple-500/20 text-purple-400', delivered: 'bg-green-500/20 text-green-400', cancelled: 'bg-red-500/20 text-red-400', active: 'bg-green-500/20 text-green-400', inactive: 'bg-gray-500/20 text-gray-400', draft: 'bg-gray-500/20 text-gray-400', banned: 'bg-red-500/20 text-red-400' };
+  return c[s] || 'bg-gray-500/20 text-gray-400';
 }
 
-function safeString(val) {
-  try {
-    if (val === null || val === undefined) return '';
-    return String(val);
-  } catch {
-    return '';
-  }
+function getLeadSourceColor(s) {
+  const c = { website: 'bg-gray-500/20 text-gray-400', chatbot: 'bg-blue-500/20 text-blue-400', contact_form: 'bg-purple-500/20 text-purple-400', whatsapp: 'bg-green-500/20 text-green-400', callback: 'bg-yellow-500/20 text-yellow-400' };
+  return c[s] || 'bg-gray-500/20 text-gray-400';
 }
 
-function safeDate(dateStr) {
-  try {
-    if (!dateStr) return '-';
-    const d = new Date(dateStr);
-    if (isNaN(d?.getTime?.())) return safeString(dateStr);
-    return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-  } catch {
-    return '-';
-  }
+function getLeadStatusColor(s) {
+  const c = { new: 'bg-blue-500/20 text-blue-400', contacted: 'bg-yellow-500/20 text-yellow-400', qualified: 'bg-green-500/20 text-green-400', converted: 'bg-[#D4AF37]/20 text-[#D4AF37]', lost: 'bg-red-500/20 text-red-400' };
+  return c[s] || 'bg-gray-500/20 text-gray-400';
 }
 
-function generateId(prefix) {
-  return prefix + '_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-}
+function getScoreColor(v) { if (v >= 70) return 'text-green-400'; if (v >= 40) return 'text-yellow-400'; return 'text-red-400'; }
 
-function loadFromStorage(key) {
-  try {
-    return JSON.parse(localStorage.getItem(key) || '[]');
-  } catch {
-    return [];
-  }
-}
-
-function saveToStorage(key, data) {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-function loadSettings() {
-  try {
-    return JSON.parse(localStorage.getItem('sword_settings') || '{}');
-  } catch {
-    return {};
-  }
+function getCouponTypeColor(t) {
+  const c = { percentage: 'bg-purple-500/20 text-purple-400', flat: 'bg-blue-500/20 text-blue-400', free_shipping: 'bg-green-500/20 text-green-400' };
+  return c[t] || 'bg-gray-500/20 text-gray-400';
 }
 
 // ═══════════════════════════════════════════════════════════════
-// NAVIGATION
+// COMPONENT: KPI Card
 // ═══════════════════════════════════════════════════════════════
 
-const NAV_ITEMS = [
-  { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { key: 'orders', label: 'Orders', icon: ShoppingBag },
-  { key: 'products', label: 'Products', icon: Package },
-  { key: 'users', label: 'Users', icon: Users },
-  { key: 'leads', label: 'Leads', icon: Phone },
-  { key: 'coupons', label: 'Coupons', icon: Tag },
-  { key: 'reports', label: 'Reports', icon: BarChart3 },
-  { key: 'settings', label: 'Settings', icon: Settings },
-];
-
-// ═══════════════════════════════════════════════════════════════
-// STATUS / BADGE helpers
-// ═══════════════════════════════════════════════════════════════
-
-function OrderStatusBadge({ status }) {
-  const s = safeString(status).toLowerCase();
-  const styles = {
-    pending: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/20',
-    processing: 'bg-blue-500/15 text-blue-400 border border-blue-500/20',
-    shipped: 'bg-purple-500/15 text-purple-400 border border-purple-500/20',
-    delivered: 'bg-green-500/15 text-green-400 border border-green-500/20',
-    cancelled: 'bg-red-500/15 text-red-400 border border-red-500/20',
-    refunded: 'bg-gray-500/15 text-gray-400 border border-gray-500/20',
-  };
+function KPICard({ label, value, icon: Icon }) {
   return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${styles[s] || styles.pending}`}>
-      {s || 'pending'}
-    </span>
-  );
-}
-
-function ProductStatusBadge({ status }) {
-  const s = safeString(status).toLowerCase();
-  const styles = {
-    active: 'bg-green-500/15 text-green-400 border border-green-500/20',
-    draft: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/20',
-    archived: 'bg-gray-500/15 text-gray-400 border border-gray-500/20',
-  };
-  return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${styles[s] || styles.draft}`}>
-      {s || 'draft'}
-    </span>
-  );
-}
-
-function UserRoleBadge({ role }) {
-  const r = safeString(role).toLowerCase();
-  const styles = {
-    admin: 'bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/20',
-    manager: 'bg-blue-500/15 text-blue-400 border border-blue-500/20',
-    staff: 'bg-gray-500/15 text-gray-400 border border-gray-500/20',
-    customer: 'bg-green-500/15 text-green-400 border border-green-500/20',
-  };
-  return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${styles[r] || styles.customer}`}>
-      {r || 'customer'}
-    </span>
-  );
-}
-
-function UserStatusBadge({ status }) {
-  const s = safeString(status).toLowerCase();
-  const styles = {
-    active: 'bg-green-500/15 text-green-400 border border-green-500/20',
-    inactive: 'bg-gray-500/15 text-gray-400 border border-gray-500/20',
-    banned: 'bg-red-500/15 text-red-400 border border-red-500/20',
-  };
-  return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${styles[s] || styles.inactive}`}>
-      {s || 'inactive'}
-    </span>
-  );
-}
-
-function LeadStatusBadge({ status }) {
-  const s = safeString(status).toLowerCase();
-  const styles = {
-    new: 'bg-blue-500/15 text-blue-400 border border-blue-500/20',
-    contacted: 'bg-yellow-500/15 text-yellow-400 border border-yellow-500/20',
-    qualified: 'bg-green-500/15 text-green-400 border border-green-500/20',
-    converted: 'bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/20',
-    lost: 'bg-gray-500/15 text-gray-400 border border-gray-500/20',
-  };
-  return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${styles[s] || styles.new}`}>
-      {s || 'new'}
-    </span>
-  );
-}
-
-function LeadSourceBadge({ source }) {
-  const s = safeString(source).toLowerCase();
-  const styles = {
-    website: 'bg-blue-500/15 text-blue-400 border border-blue-500/20',
-    chatbot: 'bg-purple-500/15 text-purple-400 border border-purple-500/20',
-    referral: 'bg-green-500/15 text-green-400 border border-green-500/20',
-    social: 'bg-pink-500/15 text-pink-400 border border-pink-500/20',
-  };
-  return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${styles[s] || styles.website}`}>
-      {s || 'website'}
-    </span>
-  );
-}
-
-function CouponTypeBadge({ type }) {
-  const t = safeString(type).toLowerCase();
-  const styles = {
-    percentage: 'bg-purple-500/15 text-purple-400 border border-purple-500/20',
-    flat: 'bg-blue-500/15 text-blue-400 border border-blue-500/20',
-    free_shipping: 'bg-green-500/15 text-green-400 border border-green-500/20',
-  };
-  const label = t === 'percentage' ? '%' : t === 'free_shipping' ? 'Free Ship' : t;
-  return (
-    <span className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${styles[t] || styles.flat}`}>
-      {label || 'flat'}
-    </span>
+    <div className="bg-[#111] border border-white/10 p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <Icon size={16} className="text-[#D4AF37]" />
+        <span className="text-gray-400 text-sm">{label}</span>
+      </div>
+      <div className="text-2xl font-bold text-white">{value}</div>
+    </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// KPI Card
+// PAGE 1: DASHBOARD
 // ═══════════════════════════════════════════════════════════════
 
-function KpiCard({ icon: Icon, label, value, subtext, colorClass }) {
+function DashboardPage({ orders, products, users, leads, onNavigate }) {
+  const revenue = safe(() => orders.reduce((s, o) => s + (o?.grandTotal || o?.total || 0), 0), 0);
+  const delivered = safe(() => orders.filter(o => o?.status === 'delivered').length, 0);
+  const pending = safe(() => orders.filter(o => o?.status === 'pending').length, 0);
+  const lowStock = safe(() => products.filter(p => (p?.stock ?? p?.quantity ?? 0) < 5).length, 0);
+  const monthly = useMemo(() => {
+    const m = Array(6).fill(0);
+    orders.forEach(o => { try { const d = new Date(o?.createdAt || o?.date); const i = 5 - ((new Date().getMonth() - d.getMonth() + 12) % 12); if (i >= 0 && i < 6) m[i] += (o?.grandTotal || o?.total || 0); } catch {} });
+    return m;
+  }, [orders]);
+  const maxM = Math.max(...monthly, 1);
+  const recent = useMemo(() => [...orders].sort((a, b) => new Date(b?.createdAt || b?.date) - new Date(a?.createdAt || a?.date)).slice(0, 5), [orders]);
+
   return (
-    <div className="rounded-xl p-5 bg-[#1a1a1a] border border-white/5">
-      <div className="flex items-center gap-4">
-        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${colorClass}`}>
-          <Icon size={22} />
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 mb-6">
+        <KPICard label="Revenue" value={formatINR(revenue)} icon={IndianRupee} />
+        <KPICard label="Orders" value={orders.length} icon={ShoppingBag} />
+        <KPICard label="Products" value={products.length} icon={Package} />
+        <KPICard label="Delivered" value={delivered} icon={CheckCircle} />
+        <KPICard label="Pending" value={pending} icon={AlertTriangle} />
+        <KPICard label="Low Stock" value={lowStock} icon={AlertTriangle} />
+      </div>
+      <div className="bg-[#111] border border-white/10 p-4 mb-6">
+        <h3 className="text-white font-bold mb-4">Monthly Revenue</h3>
+        <div className="flex items-end gap-3 h-40">
+          {monthly.map((v, i) => (
+            <div key={i} className="flex-1 flex flex-col items-center gap-1">
+              <div className="w-full bg-[#D4AF37]/80 rounded-t" style={{ height: `${(v / maxM) * 120}px` }} />
+              <span className="text-xs text-gray-400">{MONTHS[(new Date().getMonth() - 5 + i + 12) % 12]}</span>
+            </div>
+          ))}
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-gray-400 text-sm">{label}</p>
-          <p className="text-2xl font-bold mt-0.5 truncate">{value}</p>
-          {subtext && <p className="text-xs text-gray-500 mt-1">{subtext}</p>}
+      </div>
+      <div className="bg-[#111] border border-white/10 p-4">
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-white font-bold">Recent Orders</h3>
+          <button onClick={() => onNavigate('orders')} className="text-[#D4AF37] text-sm hover:underline">View All</button>
         </div>
+        <table className="w-full text-sm">
+          <thead><tr className="border-b border-white/10 text-left"><th className="pb-3 text-gray-400 font-medium px-3">Order</th><th className="pb-3 text-gray-400 font-medium px-3">Customer</th><th className="pb-3 text-gray-400 font-medium px-3">Total</th><th className="pb-3 text-gray-400 font-medium px-3">Status</th><th className="pb-3 text-gray-400 font-medium px-3">Date</th></tr></thead>
+          <tbody>
+            {recent.map((o, i) => (
+              <tr key={o?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                <td className="py-3 px-3 text-white font-medium">#{o?.id?.toString().slice(-6) || 'N/A'}</td>
+                <td className="py-3 px-3 text-gray-300">{o?.customer?.name || o?.user?.name || 'Guest'}</td>
+                <td className="py-3 px-3 text-white">{formatINR(o?.grandTotal || o?.total || 0)}</td>
+                <td className="py-3 px-3"><span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(o?.status)} capitalize`}>{o?.status || 'N/A'}</span></td>
+                <td className="py-3 px-3 text-gray-400 text-xs">{safe(() => new Date(o?.createdAt || o?.date).toLocaleDateString(), '-')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// Pagination
+// PAGE 2: ORDERS
 // ═══════════════════════════════════════════════════════════════
 
-function Pagination({ page, setPage, pageCount, totalLabel }) {
+function OrdersPage({ orders, refresh }) {
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [detail, setDetail] = useState(null);
+  const statuses = ['all', 'pending', 'processing', 'shipped', 'delivered', 'cancelled'];
+  const filtered = useMemo(() => {
+    return orders.filter(o => {
+      const m = !search || (o?.customer?.name || o?.user?.name || '').toLowerCase().includes(search.toLowerCase()) || (o?.id || '').toString().includes(search);
+      const f = filter === 'all' || o?.status === filter;
+      return m && f;
+    });
+  }, [orders, search, filter]);
+
+  const updateStatus = (id, newStatus) => {
+    try {
+      const updated = orders.map(o => o?.id === id ? { ...o, status: newStatus, updatedAt: nowISO() } : o);
+      saveOrders(updated);
+      refresh();
+      setDetail(null);
+    } catch (e) { console.error(e); }
+  };
+
   return (
-    <div className="flex items-center justify-between mt-4 px-1">
-      <p className="text-sm text-gray-400">{totalLabel}</p>
-      <div className="flex items-center gap-2">
-        <button
-          onClick={() => setPage((p) => Math.max(1, p - 1))}
-          disabled={page <= 1}
-          className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition-colors"
-        >
-          <ChevronLeft size={16} />
-        </button>
-        <span className="text-sm text-gray-400 min-w-[80px] text-center">
-          {page} / {pageCount}
-        </span>
-        <button
-          onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-          disabled={page >= pageCount}
-          className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition-colors"
-        >
-          <ChevronRight size={16} />
-        </button>
+    <div>
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search orders..." className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+        </div>
       </div>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {statuses.map(s => <button key={s} onClick={() => setFilter(s)} className={`px-3 py-1.5 text-xs rounded-full border ${filter === s ? 'bg-[#D4AF37] text-black border-[#D4AF37]' : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'}`}>{s.charAt(0).toUpperCase() + s.slice(1)}</button>)}
+      </div>
+      <div className="bg-[#111] border border-white/10 overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px]">
+          <thead><tr className="border-b border-white/10 text-left"><th className="pb-3 text-gray-400 font-medium px-3">Order ID</th><th className="pb-3 text-gray-400 font-medium px-3">Customer</th><th className="pb-3 text-gray-400 font-medium px-3">Items</th><th className="pb-3 text-gray-400 font-medium px-3">Total</th><th className="pb-3 text-gray-400 font-medium px-3">Status</th><th className="pb-3 text-gray-400 font-medium px-3">Date</th></tr></thead>
+          <tbody>
+            {filtered.map((o, i) => (
+              <tr key={o?.id || i} className="border-b border-white/5 hover:bg-white/[0.02] cursor-pointer" onClick={() => setDetail(o)}>
+                <td className="py-3 px-3 text-white font-medium">#{o?.id?.toString().slice(-6) || 'N/A'}</td>
+                <td className="py-3 px-3 text-gray-300">{o?.customer?.name || o?.user?.name || 'Guest'}</td>
+                <td className="py-3 px-3 text-gray-300">{safe(() => o?.items?.length, 0)}</td>
+                <td className="py-3 px-3 text-white">{formatINR(o?.grandTotal || o?.total || 0)}</td>
+                <td className="py-3 px-3"><span className={`text-xs px-2 py-1 rounded-full capitalize ${getStatusColor(o?.status)}`}>{o?.status || 'N/A'}</span></td>
+                <td className="py-3 px-3 text-gray-400 text-xs">{safe(() => new Date(o?.createdAt || o?.date).toLocaleDateString(), '-')}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div className="text-center py-8 text-gray-500 text-sm">No orders found</div>}
+      </div>
+      {detail && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setDetail(null)}>
+          <div className="bg-[#111] border border-white/10 w-full max-w-lg max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-white">Order #{detail?.id?.toString().slice(-6)}</h3>
+              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-white"><X size={20} /></button>
+            </div>
+            <div className="space-y-3 mb-4">
+              <p className="text-gray-300 text-sm"><span className="text-gray-500">Customer:</span> {detail?.customer?.name || detail?.user?.name || 'Guest'}</p>
+              <p className="text-gray-300 text-sm"><span className="text-gray-500">Email:</span> {detail?.customer?.email || detail?.user?.email || 'N/A'}</p>
+              <p className="text-gray-300 text-sm"><span className="text-gray-500">Phone:</span> {detail?.customer?.phone || detail?.user?.phone || 'N/A'}</p>
+              <p className="text-gray-300 text-sm"><span className="text-gray-500">Address:</span> {detail?.shippingAddress?.fullAddress || detail?.address || 'N/A'}</p>
+            </div>
+            <div className="border-t border-white/10 pt-4 mb-4">
+              <h4 className="text-white font-bold mb-2">Items</h4>
+              {safe(() => detail?.items, []).map((it, idx) => (
+                <div key={idx} className="flex justify-between py-2 border-b border-white/5 text-sm">
+                  <span className="text-gray-300">{it?.name || it?.productName || 'Item'} x{it?.quantity || 1}</span>
+                  <span className="text-white">{formatINR((it?.price || 0) * (it?.quantity || 1))}</span>
+                </div>
+              ))}
+              <div className="flex justify-between py-2 text-sm font-bold">
+                <span className="text-white">Grand Total</span>
+                <span className="text-[#D4AF37]">{formatINR(detail?.grandTotal || detail?.total || 0)}</span>
+              </div>
+            </div>
+            <div className="border-t border-white/10 pt-4">
+              <h4 className="text-white font-bold mb-2">Update Status</h4>
+              <div className="flex flex-wrap gap-2">
+                {statuses.slice(1).map(s => (
+                  <button key={s} onClick={() => updateStatus(detail?.id, s)} className={`px-3 py-1.5 text-xs rounded-full border capitalize ${detail?.status === s ? 'bg-[#D4AF37] text-black border-[#D4AF37]' : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'}`}>{s}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
-// MAIN COMPONENT
+// PAGE 3: PRODUCTS (MOST IMPORTANT)
+// ═══════════════════════════════════════════════════════════════
+
+function ProductsPage({ products, setProducts, refresh }) {
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('all');
+  const [modal, setModal] = useState(null);
+  const [editing, setEditing] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const filters = ['all', 'active', 'draft', 'low_stock', 'out_of_stock'];
+  const filtered = useMemo(() => products.filter(p => {
+    const m = !search || (p?.name || '').toLowerCase().includes(search.toLowerCase()) || (p?.sku || '').toLowerCase().includes(search.toLowerCase());
+    const stock = p?.stock ?? p?.quantity ?? 0;
+    const f = filter === 'all' || (filter === 'active' && p?.isActive) || (filter === 'draft' && !p?.isActive) || (filter === 'low_stock' && stock > 0 && stock < 5) || (filter === 'out_of_stock' && stock <= 0);
+    return m && f;
+  }), [products, search, filter]);
+
+  const toggleActive = (id) => {
+    try { const updated = products.map(p => p?.id === id ? { ...p, isActive: !p?.isActive, updatedAt: nowISO() } : p); saveProducts(updated); setProducts(updated); } catch (e) { console.error(e); }
+  };
+  const toggleFeatured = (id) => {
+    try { const updated = products.map(p => p?.id === id ? { ...p, isFeatured: !p?.isFeatured, updatedAt: nowISO() } : p); saveProducts(updated); setProducts(updated); } catch (e) { console.error(e); }
+  };
+  const deleteProduct = (id) => {
+    try { const updated = products.filter(p => p?.id !== id); saveProducts(updated); setProducts(updated); setConfirmDelete(null); } catch (e) { console.error(e); }
+  };
+  const saveProduct = (e) => {
+    e.preventDefault();
+    try {
+      const fd = new FormData(e.target);
+      const data = Object.fromEntries(fd);
+      const name = data.name?.trim();
+      const price = parseFloat(data.price) || 0;
+      const mrp = parseFloat(data.mrp) || 0;
+      const stock = parseInt(data.stock) || 0;
+      const costPrice = parseFloat(data.costPrice) || 0;
+      const gstRate = parseFloat(data.gstRate) || 18;
+      const lowStock = parseInt(data.lowStockThreshold) || 5;
+      const base = { name, slug: data.slug || '', sku: data.sku || '', mrp, price, costPrice, stock, quantity: stock, gstRate: gstRate, gstInclusive: data.gstInclusive === 'on', lowStockThreshold: lowStock, category: data.category || '', brand: data.brand || '', tags: (data.tags || '').split(',').map(t => t.trim()).filter(Boolean), description: data.description || '', isActive: data.isActive === 'on', isFeatured: data.isFeatured === 'on', seoTitle: data.seoTitle || '', seoDescription: data.seoDescription || '', updatedAt: nowISO() };
+      if (editing) {
+        const targetId = editing?.id;
+        if (!targetId) { console.error('No target ID'); return; }
+        const updated = products.map(p => p?.id === targetId ? { ...p, ...base } : p);
+        saveProducts(updated); setProducts(updated); setEditing(null);
+      } else {
+        const np = { ...base, id: 'prod_' + Date.now(), createdAt: nowISO(), images: [] };
+        const updated = [...products, np]; saveProducts(updated); setProducts(updated);
+      }
+      setModal(null);
+    } catch (err) { console.error(err); }
+  };
+
+  const openEdit = (p) => { setEditing(p); setModal('edit'); };
+  const openAdd = () => { setEditing(null); setModal('add'); };
+
+  return (
+    <div>
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name or SKU..." className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+        </div>
+        <button onClick={openAdd} className="flex items-center gap-2 bg-[#D4AF37] text-black px-4 py-2.5 text-sm font-bold hover:bg-[#e5c158] transition-colors"><Plus size={16} /> Add Product</button>
+      </div>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {filters.map(f => <button key={f} onClick={() => setFilter(f)} className={`px-3 py-1.5 text-xs rounded-full border ${filter === f ? 'bg-[#D4AF37] text-black border-[#D4AF37]' : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'}`}>{f.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</button>)}
+      </div>
+      <div className="bg-[#111] border border-white/10 overflow-x-auto">
+        <table className="w-full text-sm min-w-[800px]">
+          <thead><tr className="border-b border-white/10 text-left"><th className="pb-3 text-gray-400 font-medium px-3">Image</th><th className="pb-3 text-gray-400 font-medium px-3">Name</th><th className="pb-3 text-gray-400 font-medium px-3">SKU</th><th className="pb-3 text-gray-400 font-medium px-3">MRP</th><th className="pb-3 text-gray-400 font-medium px-3">Price</th><th className="pb-3 text-gray-400 font-medium px-3">Stock</th><th className="pb-3 text-gray-400 font-medium px-3">Status</th><th className="pb-3 text-gray-400 font-medium px-3">Actions</th></tr></thead>
+          <tbody>
+            {filtered.map((p, i) => {
+              const stock = p?.stock ?? p?.quantity ?? 0;
+              return (
+                <tr key={p?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                  <td className="py-3 px-3"><img src={safe(() => p?.images?.[0], 'https://placehold.co/40x40/1a1a1a/666?text=No+Img')} alt="" className="w-10 h-10 object-cover rounded border border-white/10" onError={e => { e.target.src = 'https://placehold.co/40x40/1a1a1a/666?text=No+Img'; }} /></td>
+                  <td className="py-3 px-3 text-white font-medium">{p?.name || 'Unnamed'}</td>
+                  <td className="py-3 px-3 text-gray-400 text-xs">{p?.sku || 'N/A'}</td>
+                  <td className="py-3 px-3 text-gray-400 line-through">{formatINR(p?.mrp || 0)}</td>
+                  <td className="py-3 px-3 text-white font-medium">{formatINR(p?.price || 0)}</td>
+                  <td className="py-3 px-3"><span className={stock <= 0 ? 'text-red-400' : stock < 5 ? 'text-yellow-400' : 'text-green-400'}>{stock}</span></td>
+                  <td className="py-3 px-3">
+                    <button onClick={() => toggleActive(p?.id)} className={`text-xs px-2 py-1 rounded-full ${p?.isActive ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>{p?.isActive ? 'Active' : 'Draft'}</button>
+                  </td>
+                  <td className="py-3 px-3">
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => openEdit(p)} className="text-blue-400 hover:text-blue-300 p-1"><Pencil size={14} /></button>
+                      <button onClick={() => setConfirmDelete(p)} className="text-red-400 hover:text-red-300 p-1"><Trash2 size={14} /></button>
+                      <button onClick={() => toggleFeatured(p?.id)} className={`p-1 ${p?.isFeatured ? 'text-[#D4AF37]' : 'text-gray-500 hover:text-gray-300'}`}><Star size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div className="text-center py-8 text-gray-500 text-sm">No products found</div>}
+      </div>
+      {(modal === 'add' || modal === 'edit') && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setModal(null)}>
+          <div className="bg-[#111] border border-white/10 w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-lg font-bold text-white">{editing ? 'Edit Product' : 'Add Product'}</h3>
+              <button onClick={() => setModal(null)} className="text-gray-400 hover:text-white"><X size={20} /></button>
+            </div>
+            <form onSubmit={saveProduct} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div><label className="block text-gray-400 text-xs mb-1">Name *</label><input name="name" defaultValue={editing?.name || ''} required className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="Product name" /></div>
+                <div><label className="block text-gray-400 text-xs mb-1">Slug</label><input name="slug" defaultValue={editing?.slug || ''} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="product-slug" /></div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div><label className="block text-gray-400 text-xs mb-1">SKU</label><div className="flex gap-2"><input name="sku" defaultValue={editing?.sku || ''} className="flex-1 bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="SKU" /><button type="button" onClick={() => { const el = document.querySelector('input[name="sku"]'); if (el) el.value = generateSKU(); }} className="px-2 py-1 bg-white/10 text-xs text-gray-300 rounded border border-white/10 hover:bg-white/20">Auto</button></div></div>
+                <div><label className="block text-gray-400 text-xs mb-1">MRP (₹)</label><input name="mrp" type="number" defaultValue={editing?.mrp || ''} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="0" /></div>
+                <div><label className="block text-gray-400 text-xs mb-1">Selling Price (₹) *</label><input name="price" type="number" defaultValue={editing?.price || ''} required className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="0" /></div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div><label className="block text-gray-400 text-xs mb-1">Cost Price (₹)</label><input name="costPrice" type="number" defaultValue={editing?.costPrice || ''} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="0" /></div>
+                <div><label className="block text-gray-400 text-xs mb-1">GST Rate (%)</label><input name="gstRate" type="number" defaultValue={editing?.gstRate || 18} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="18" /></div>
+                <div className="flex items-end pb-1"><label className="flex items-center gap-2 cursor-pointer"><input name="gstInclusive" type="checkbox" defaultChecked={editing?.gstInclusive} className="accent-[#D4AF37]" /><span className="text-gray-300 text-sm">GST Inclusive</span></label></div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div><label className="block text-gray-400 text-xs mb-1">Stock Quantity *</label><input name="stock" type="number" defaultValue={editing?.stock ?? editing?.quantity ?? ''} required className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="0" /></div>
+                <div><label className="block text-gray-400 text-xs mb-1">Low Stock Threshold</label><input name="lowStockThreshold" type="number" defaultValue={editing?.lowStockThreshold || 5} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="5" /></div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div><label className="block text-gray-400 text-xs mb-1">Category</label><input name="category" defaultValue={editing?.category || ''} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="Category" /></div>
+                <div><label className="block text-gray-400 text-xs mb-1">Brand</label><input name="brand" defaultValue={editing?.brand || ''} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="Brand" /></div>
+                <div><label className="block text-gray-400 text-xs mb-1">Tags (comma sep.)</label><input name="tags" defaultValue={safe(() => editing?.tags?.join(', '), '')} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="tag1, tag2" /></div>
+              </div>
+              <div><label className="block text-gray-400 text-xs mb-1">Description</label><textarea name="description" rows={3} defaultValue={editing?.description || ''} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30 resize-none" placeholder="Product description..." /></div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div><label className="block text-gray-400 text-xs mb-1">SEO Title</label><input name="seoTitle" defaultValue={editing?.seoTitle || ''} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="SEO Title" /></div>
+                <div><label className="block text-gray-400 text-xs mb-1">SEO Description</label><input name="seoDescription" defaultValue={editing?.seoDescription || ''} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="Meta description" /></div>
+              </div>
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer"><input name="isActive" type="checkbox" defaultChecked={editing ? editing?.isActive : true} className="accent-[#D4AF37]" /><span className="text-gray-300 text-sm">Active</span></label>
+                <label className="flex items-center gap-2 cursor-pointer"><input name="isFeatured" type="checkbox" defaultChecked={editing?.isFeatured || false} className="accent-[#D4AF37]" /><span className="text-gray-300 text-sm">Featured</span></label>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" className="flex-1 bg-[#D4AF37] text-black py-2.5 font-bold text-sm hover:bg-[#e5c158] transition-colors">{editing ? 'Update Product' : 'Add Product'}</button>
+                <button type="button" onClick={() => setModal(null)} className="px-6 py-2.5 border border-white/20 text-gray-300 text-sm hover:bg-white/5 transition-colors">Cancel</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setConfirmDelete(null)}>
+          <div className="bg-[#111] border border-white/10 w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-white mb-2">Delete Product?</h3>
+            <p className="text-gray-400 text-sm mb-4">Are you sure you want to delete &quot;{confirmDelete?.name}&quot;? This cannot be undone.</p>
+            <div className="flex gap-3">
+              <button onClick={() => deleteProduct(confirmDelete?.id)} className="flex-1 bg-red-500 text-white py-2.5 font-bold text-sm hover:bg-red-600 transition-colors">Delete</button>
+              <button onClick={() => setConfirmDelete(null)} className="px-6 py-2.5 border border-white/20 text-gray-300 text-sm hover:bg-white/5 transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PAGE 4: USERS
+// ═══════════════════════════════════════════════════════════════
+
+function UsersPage({ users, orders }) {
+  const [search, setSearch] = useState('');
+  const [detail, setDetail] = useState(null);
+  const roleColors = { admin: 'bg-[#D4AF37]/20 text-[#D4AF37]', manager: 'bg-blue-500/20 text-blue-400', staff: 'bg-gray-500/20 text-gray-400', customer: 'bg-green-500/20 text-green-400' };
+  const filtered = useMemo(() => users.filter(u => !search || (u?.name || '').toLowerCase().includes(search.toLowerCase()) || (u?.email || '').toLowerCase().includes(search.toLowerCase())), [users, search]);
+  const userOrders = (uid) => safe(() => orders.filter(o => (o?.userId || o?.user?.id) === uid), []);
+
+  return (
+    <div>
+      <div className="relative mb-4">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search users..." className="w-full sm:w-80 bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+      </div>
+      <div className="bg-[#111] border border-white/10 overflow-x-auto">
+        <table className="w-full text-sm min-w-[700px]">
+          <thead><tr className="border-b border-white/10 text-left"><th className="pb-3 text-gray-400 font-medium px-3">User</th><th className="pb-3 text-gray-400 font-medium px-3">Email</th><th className="pb-3 text-gray-400 font-medium px-3">Phone</th><th className="pb-3 text-gray-400 font-medium px-3">Role</th><th className="pb-3 text-gray-400 font-medium px-3">Status</th><th className="pb-3 text-gray-400 font-medium px-3">Actions</th></tr></thead>
+          <tbody>
+            {filtered.map((u, i) => (
+              <tr key={u?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                <td className="py-3 px-3"><div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-[#D4AF37]/20 flex items-center justify-center text-[#D4AF37] text-xs font-bold">{(u?.name || 'U').charAt(0).toUpperCase()}</div>
+                  <span className="text-white font-medium">{u?.name || 'Unnamed'}</span>
+                </div></td>
+                <td className="py-3 px-3 text-gray-300">{u?.email || 'N/A'}</td>
+                <td className="py-3 px-3 text-gray-300">{u?.phone || 'N/A'}</td>
+                <td className="py-3 px-3"><span className={`text-xs px-2 py-1 rounded-full ${roleColors[u?.role] || roleColors.customer} capitalize`}>{u?.role || 'customer'}</span></td>
+                <td className="py-3 px-3"><span className={`text-xs px-2 py-1 rounded-full capitalize ${u?.status === 'banned' ? 'bg-red-500/20 text-red-400' : u?.isActive !== false ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>{u?.status === 'banned' ? 'Banned' : u?.isActive !== false ? 'Active' : 'Inactive'}</span></td>
+                <td className="py-3 px-3">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => setDetail(u)} className="text-blue-400 hover:text-blue-300 p-1" title="View orders"><Eye size={14} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div className="text-center py-8 text-gray-500 text-sm">No users found</div>}
+      </div>
+      {detail && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setDetail(null)}>
+          <div className="bg-[#111] border border-white/10 w-full max-w-lg max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-white">{detail?.name || 'User'}</h3>
+              <button onClick={() => setDetail(null)} className="text-gray-400 hover:text-white"><X size={20} /></button>
+            </div>
+            <div className="space-y-2 text-sm mb-4">
+              <p className="text-gray-300"><span className="text-gray-500">Email:</span> {detail?.email || 'N/A'}</p>
+              <p className="text-gray-300"><span className="text-gray-500">Phone:</span> {detail?.phone || 'N/A'}</p>
+              <p className="text-gray-300"><span className="text-gray-500">Role:</span> <span className={`text-xs px-2 py-0.5 rounded-full ${roleColors[detail?.role] || roleColors.customer}`}>{detail?.role || 'customer'}</span></p>
+            </div>
+            <div className="border-t border-white/10 pt-4">
+              <h4 className="text-white font-bold mb-2">Orders ({userOrders(detail?.id).length})</h4>
+              {userOrders(detail?.id).length === 0 ? <p className="text-gray-500 text-sm">No orders</p> : (
+                <div className="space-y-2 max-h-48 overflow-y-auto">
+                  {userOrders(detail?.id).map((o, idx) => (
+                    <div key={idx} className="flex justify-between py-2 border-b border-white/5 text-sm">
+                      <span className="text-gray-300">#{o?.id?.toString().slice(-6)}</span>
+                      <span className="text-white">{formatINR(o?.grandTotal || o?.total || 0)}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${getStatusColor(o?.status)}`}>{o?.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PAGE 5: LEADS
+// ═══════════════════════════════════════════════════════════════
+
+function LeadsPage() {
+  const [leads, setLeads] = useState([]);
+  const [analytics, setAnalytics] = useState({});
+  const [search, setSearch] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [modal, setModal] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [noteText, setNoteText] = useState('');
+
+  useEffect(() => { try { setLeads(getLeads()); setAnalytics(getLeadAnalytics()); } catch (e) { console.error(e); } }, []);
+  const refresh = () => { try { setLeads(getLeads()); setAnalytics(getLeadAnalytics()); } catch (e) { console.error(e); } };
+  const sources = ['all', 'website', 'chatbot', 'contact_form', 'whatsapp'];
+  const lStatuses = ['all', 'new', 'contacted', 'qualified', 'converted', 'lost'];
+
+  const filtered = useMemo(() => leads.filter(l => {
+    const m = !search || (l?.name || '').toLowerCase().includes(search.toLowerCase()) || (l?.email || '').toLowerCase().includes(search.toLowerCase()) || (l?.phone || '').includes(search);
+    const sf = sourceFilter === 'all' || l?.source === sourceFilter;
+    const stf = statusFilter === 'all' || l?.status === statusFilter;
+    return m && sf && stf;
+  }), [leads, search, sourceFilter, statusFilter]);
+
+  const handleAdd = (e) => {
+    e.preventDefault();
+    try {
+      const fd = new FormData(e.target);
+      addLead({ name: fd.get('name'), email: fd.get('email'), phone: fd.get('phone'), source: fd.get('source') || 'website', productInterest: fd.get('productInterest') || '', message: fd.get('message') || '' });
+      refresh(); setModal(null);
+    } catch (e) { console.error(e); }
+  };
+  const handleStatus = (id, status) => { try { updateLeadStatus(id, status); refresh(); } catch (e) { console.error(e); } };
+  const handleAddNote = (id) => { if (!noteText.trim()) return; try { addLeadNote(id, noteText); setNoteText(''); refresh(); } catch (e) { console.error(e); } };
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <KPICard label="Total Leads" value={analytics?.total || leads.length} icon={Users} />
+        <KPICard label="New Today" value={safe(() => leads.filter(l => l?.createdAt?.startsWith(todayStr())).length, 0)} icon={Bell} />
+        <KPICard label="Conversion Rate" value={`${safe(() => Math.round((leads.filter(l => l?.status === 'converted').length / Math.max(leads.length, 1)) * 100), 0)}%`} icon={TrendingUp} />
+        <KPICard label="Avg Score" value={safe(() => Math.round(leads.reduce((s, l) => s + (l?.score || 0), 0) / Math.max(leads.length, 1)), 0)} icon={BarChart3} />
+      </div>
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search leads..." className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+        </div>
+        <button onClick={() => setModal('add')} className="flex items-center gap-2 bg-[#D4AF37] text-black px-4 py-2.5 text-sm font-bold hover:bg-[#e5c158] transition-colors"><Plus size={16} /> Add Lead</button>
+        <button onClick={() => { try { exportLeadsCSV(); } catch (e) { console.error(e); } }} className="flex items-center gap-2 bg-white/10 text-gray-300 px-4 py-2.5 text-sm border border-white/10 hover:bg-white/20 transition-colors"><Download size={16} /> Export CSV</button>
+      </div>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {sources.map(s => <button key={s} onClick={() => setSourceFilter(s)} className={`px-3 py-1.5 text-xs rounded-full border ${sourceFilter === s ? 'bg-[#D4AF37] text-black border-[#D4AF37]' : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'}`}>{s.charAt(0).toUpperCase() + s.slice(1)}</button>)}
+      </div>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {lStatuses.map(s => <button key={s} onClick={() => setStatusFilter(s)} className={`px-3 py-1.5 text-xs rounded-full border ${statusFilter === s ? 'bg-[#D4AF37] text-black border-[#D4AF37]' : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'}`}>{s.charAt(0).toUpperCase() + s.slice(1)}</button>)}
+      </div>
+      <div className="bg-[#111] border border-white/10 overflow-x-auto">
+        <table className="w-full text-sm min-w-[800px]">
+          <thead><tr className="border-b border-white/10 text-left"><th className="pb-3 text-gray-400 font-medium px-3">Name</th><th className="pb-3 text-gray-400 font-medium px-3">Contact</th><th className="pb-3 text-gray-400 font-medium px-3">Source</th><th className="pb-3 text-gray-400 font-medium px-3">Interest</th><th className="pb-3 text-gray-400 font-medium px-3">Status</th><th className="pb-3 text-gray-400 font-medium px-3">Score</th><th className="pb-3 text-gray-400 font-medium px-3">Date</th><th className="pb-3 text-gray-400 font-medium px-3">Actions</th></tr></thead>
+          <tbody>
+            {filtered.map((l, i) => (
+              <tr key={l?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                <td className="py-3 px-3 text-white font-medium">{l?.name || 'Unnamed'}</td>
+                <td className="py-3 px-3 text-gray-300 text-xs">{l?.email || ''}<br/>{l?.phone || ''}</td>
+                <td className="py-3 px-3"><span className={`text-xs px-2 py-1 rounded-full capitalize ${getLeadSourceColor(l?.source)}`}>{(l?.source || 'website').replace('_', ' ')}</span></td>
+                <td className="py-3 px-3 text-gray-300">{l?.productInterest || 'N/A'}</td>
+                <td className="py-3 px-3"><span className={`text-xs px-2 py-1 rounded-full capitalize ${getLeadStatusColor(l?.status)}`}>{l?.status || 'new'}</span></td>
+                <td className="py-3 px-3"><span className={`font-bold ${getScoreColor(l?.score || 0)}`}>{l?.score || 0}</span></td>
+                <td className="py-3 px-3 text-gray-400 text-xs">{safe(() => new Date(l?.createdAt).toLocaleDateString(), '-')}</td>
+                <td className="py-3 px-3">
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => setDetail(l)} className="text-blue-400 hover:text-blue-300 p-1"><Eye size={14} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {filtered.length === 0 && <div className="text-center py-8 text-gray-500 text-sm">No leads found</div>}
+      </div>
+      {modal === 'add' && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setModal(null)}>
+          <div className="bg-[#111] border border-white/10 w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-white">Add Lead</h3><button onClick={() => setModal(null)} className="text-gray-400 hover:text-white"><X size={20} /></button></div>
+            <form onSubmit={handleAdd} className="space-y-3">
+              <input name="name" required placeholder="Name" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+              <input name="email" type="email" placeholder="Email" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+              <input name="phone" placeholder="Phone" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+              <select name="source" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37]">
+                {['website', 'chatbot', 'contact_form', 'whatsapp'].map(s => <option key={s} value={s} className="bg-[#111]">{(s || '').replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}</option>)}
+              </select>
+              <input name="productInterest" placeholder="Product Interest" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+              <textarea name="message" rows={3} placeholder="Message" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30 resize-none" />
+              <button type="submit" className="w-full bg-[#D4AF37] text-black py-2.5 font-bold text-sm hover:bg-[#e5c158] transition-colors">Add Lead</button>
+            </form>
+          </div>
+        </div>
+      )}
+      {detail && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setDetail(null)}>
+          <div className="bg-[#111] border border-white/10 w-full max-w-lg max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-white">{detail?.name}</h3><button onClick={() => setDetail(null)} className="text-gray-400 hover:text-white"><X size={20} /></button></div>
+            <div className="space-y-2 text-sm mb-4">
+              <p className="text-gray-300"><span className="text-gray-500">Email:</span> {detail?.email || 'N/A'}</p>
+              <p className="text-gray-300"><span className="text-gray-500">Phone:</span> {detail?.phone || 'N/A'}</p>
+              <p className="text-gray-300"><span className="text-gray-500">Source:</span> <span className={`text-xs px-2 py-0.5 rounded-full ${getLeadSourceColor(detail?.source)}`}>{(detail?.source || '').replace('_', ' ')}</span></p>
+              <p className="text-gray-300"><span className="text-gray-500">Interest:</span> {detail?.productInterest || 'N/A'}</p>
+              <p className="text-gray-300"><span className="text-gray-500">Score:</span> <span className={getScoreColor(detail?.score || 0)}>{detail?.score || 0}</span></p>
+            </div>
+            <div className="border-t border-white/10 pt-4 mb-4">
+              <h4 className="text-white font-bold mb-2">Change Status</h4>
+              <div className="flex flex-wrap gap-2">
+                {lStatuses.slice(1).map(s => (
+                  <button key={s} onClick={() => handleStatus(detail?.id, s)} className={`px-3 py-1.5 text-xs rounded-full border capitalize ${detail?.status === s ? 'bg-[#D4AF37] text-black border-[#D4AF37]' : 'bg-white/5 text-gray-300 border-white/10 hover:bg-white/10'}`}>{s}</button>
+                ))}
+              </div>
+            </div>
+            <div className="border-t border-white/10 pt-4">
+              <h4 className="text-white font-bold mb-2">Add Note</h4>
+              <div className="flex gap-2">
+                <input value={noteText} onChange={e => setNoteText(e.target.value)} placeholder="Type a note..." className="flex-1 bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+                <button onClick={() => handleAddNote(detail?.id)} className="px-4 py-2 bg-[#D4AF37] text-black text-sm font-bold hover:bg-[#e5c158]">Add</button>
+              </div>
+              <div className="mt-3 space-y-2 max-h-40 overflow-y-auto">
+                {safe(() => detail?.notes, []).map((n, idx) => (
+                  <div key={idx} className="text-xs text-gray-300 bg-white/5 p-2 rounded"><p>{n?.text || n}</p><p className="text-gray-500 mt-1">{safe(() => new Date(n?.timestamp || n?.date).toLocaleString(), '')}</p></div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PAGE 6: COUPONS
+// ═══════════════════════════════════════════════════════════════
+
+function CouponsPage() {
+  const [coupons, setCoupons] = useState([]);
+  const [modal, setModal] = useState(null);
+  useEffect(() => { try { setCoupons(getCoupons()); } catch (e) { console.error(e); } }, []);
+  const refresh = () => { try { setCoupons(getCoupons()); } catch (e) { console.error(e); } };
+
+  const handleAdd = (e) => {
+    e.preventDefault();
+    try {
+      const fd = new FormData(e.target);
+      addCoupon({ code: fd.get('code'), type: fd.get('type'), value: parseFloat(fd.get('value')) || 0, minOrder: parseFloat(fd.get('minOrder')) || 0, maxDiscount: parseFloat(fd.get('maxDiscount')) || 0, usageLimit: parseInt(fd.get('usageLimit')) || 100, perUserLimit: parseInt(fd.get('perUserLimit')) || 1, expiryDate: fd.get('expiryDate') || '', autoApply: fd.get('autoApply') === 'on', firstTimeOnly: fd.get('firstTimeOnly') === 'on', description: fd.get('description') || '', isActive: true });
+      refresh(); setModal(null);
+    } catch (e) { console.error(e); }
+  };
+  const toggle = (id) => { try { const c = coupons.find(x => x?.id === id); if (c) { updateCoupon(id, { ...c, isActive: !c?.isActive }); refresh(); } } catch (e) { console.error(e); } };
+  const remove = (id) => { try { deleteCoupon(id); refresh(); } catch (e) { console.error(e); } };
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-white font-bold">Coupons</h2>
+        <button onClick={() => setModal('add')} className="flex items-center gap-2 bg-[#D4AF37] text-black px-4 py-2.5 text-sm font-bold hover:bg-[#e5c158] transition-colors"><Plus size={16} /> Add Coupon</button>
+      </div>
+      <div className="bg-[#111] border border-white/10 overflow-x-auto">
+        <table className="w-full text-sm min-w-[800px]">
+          <thead><tr className="border-b border-white/10 text-left"><th className="pb-3 text-gray-400 font-medium px-3">Code</th><th className="pb-3 text-gray-400 font-medium px-3">Type</th><th className="pb-3 text-gray-400 font-medium px-3">Value</th><th className="pb-3 text-gray-400 font-medium px-3">Min Order</th><th className="pb-3 text-gray-400 font-medium px-3">Usage</th><th className="pb-3 text-gray-400 font-medium px-3">Expiry</th><th className="pb-3 text-gray-400 font-medium px-3">Status</th><th className="pb-3 text-gray-400 font-medium px-3">Actions</th></tr></thead>
+          <tbody>
+            {coupons.map((c, i) => (
+              <tr key={c?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                <td className="py-3 px-3 text-white font-mono text-xs">{c?.code || 'N/A'}</td>
+                <td className="py-3 px-3"><span className={`text-xs px-2 py-1 rounded-full capitalize ${getCouponTypeColor(c?.type)}`}>{c?.type || 'flat'}</span></td>
+                <td className="py-3 px-3 text-white">{c?.type === 'percentage' ? `${c?.value}%` : formatINR(c?.value || 0)}</td>
+                <td className="py-3 px-3 text-gray-300">{formatINR(c?.minOrder || 0)}</td>
+                <td className="py-3 px-3 text-gray-300">{c?.usedCount || 0}/{c?.usageLimit || 0}</td>
+                <td className="py-3 px-3 text-gray-400 text-xs">{c?.expiryDate ? safe(() => new Date(c?.expiryDate).toLocaleDateString(), '-') : 'No expiry'}</td>
+                <td className="py-3 px-3">
+                  <button onClick={() => toggle(c?.id)} className={`text-xs px-2 py-1 rounded-full ${c?.isActive ? 'bg-green-500/20 text-green-400' : 'bg-gray-500/20 text-gray-400'}`}>{c?.isActive ? 'Active' : 'Inactive'}</button>
+                </td>
+                <td className="py-3 px-3">
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => remove(c?.id)} className="text-red-400 hover:text-red-300 p-1"><Trash2 size={14} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {coupons.length === 0 && <div className="text-center py-8 text-gray-500 text-sm">No coupons found</div>}
+      </div>
+      {modal === 'add' && (
+        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onClick={() => setModal(null)}>
+          <div className="bg-[#111] border border-white/10 w-full max-w-md max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4"><h3 className="text-lg font-bold text-white">Add Coupon</h3><button onClick={() => setModal(null)} className="text-gray-400 hover:text-white"><X size={20} /></button></div>
+            <form onSubmit={handleAdd} className="space-y-3">
+              <input name="code" required placeholder="Coupon code" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+              <select name="type" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37]"><option value="flat" className="bg-[#111]">Flat Amount</option><option value="percentage" className="bg-[#111]">Percentage</option><option value="free_shipping" className="bg-[#111]">Free Shipping</option></select>
+              <input name="value" type="number" required placeholder="Value" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+              <input name="minOrder" type="number" placeholder="Min Order Amount" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+              <input name="maxDiscount" type="number" placeholder="Max Discount" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+              <input name="usageLimit" type="number" placeholder="Usage Limit" defaultValue="100" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+              <input name="perUserLimit" type="number" placeholder="Per User Limit" defaultValue="1" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+              <input name="expiryDate" type="date" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37]" />
+              <input name="description" placeholder="Description" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
+              <div className="flex gap-4">
+                <label className="flex items-center gap-2 cursor-pointer"><input name="autoApply" type="checkbox" className="accent-[#D4AF37]" /><span className="text-gray-300 text-sm">Auto Apply</span></label>
+                <label className="flex items-center gap-2 cursor-pointer"><input name="firstTimeOnly" type="checkbox" className="accent-[#D4AF37]" /><span className="text-gray-300 text-sm">First Time Only</span></label>
+              </div>
+              <button type="submit" className="w-full bg-[#D4AF37] text-black py-2.5 font-bold text-sm hover:bg-[#e5c158] transition-colors">Create Coupon</button>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PAGE 7: REPORTS
+// ═══════════════════════════════════════════════════════════════
+
+function ReportsPage({ orders, products, users }) {
+  const revenue = safe(() => orders.reduce((s, o) => s + (o?.grandTotal || o?.total || 0), 0), 0);
+  const avgOrder = orders.length > 0 ? revenue / orders.length : 0;
+  const monthly = useMemo(() => {
+    const m = Array(6).fill(0);
+    orders.forEach(o => { try { const d = new Date(o?.createdAt || o?.date); const i = 5 - ((new Date().getMonth() - d.getMonth() + 12) % 12); if (i >= 0 && i < 6) m[i] += (o?.grandTotal || o?.total || 0); } catch {} });
+    return m;
+  }, [orders]);
+  const maxM = Math.max(...monthly, 1);
+  const paymentCounts = useMemo(() => {
+    const c = {};
+    orders.forEach(o => { const st = o?.paymentStatus || 'pending'; c[st] = (c[st] || 0) + 1; });
+    return c;
+  }, [orders]);
+  const shippingCounts = useMemo(() => {
+    const c = {};
+    orders.forEach(o => { const st = o?.shipmentStatus || o?.status || 'pending'; c[st] = (c[st] || 0) + 1; });
+    return c;
+  }, [orders]);
+  const topProducts = useMemo(() => {
+    const sales = {};
+    orders.forEach(o => { safe(() => o?.items, []).forEach(it => { const pid = it?.productId || it?.id; if (pid) { sales[pid] = (sales[pid] || 0) + (it?.quantity || 1); } }); });
+    return Object.entries(sales).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, qty]) => {
+      const prod = products.find(p => p?.id === id);
+      return { name: prod?.name || 'Unknown', qty, revenue: qty * (prod?.price || 0) };
+    });
+  }, [orders, products]);
+
+  const exportCSV = (filename, headers, rows) => {
+    try {
+      const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
+    } catch (e) { console.error(e); }
+  };
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <KPICard label="Total Sales" value={formatINR(revenue)} icon={IndianRupee} />
+        <KPICard label="Total Orders" value={orders.length} icon={ShoppingBag} />
+        <KPICard label="Avg Order Value" value={formatINR(avgOrder)} icon={BarChart3} />
+        <KPICard label="Customers" value={users.length} icon={Users} />
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <div className="bg-[#111] border border-white/10 p-4">
+          <h3 className="text-white font-bold mb-4">Monthly Sales</h3>
+          <div className="flex items-end gap-3 h-40">
+            {monthly.map((v, i) => (
+              <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                <div className="w-full bg-[#D4AF37]/80 rounded-t" style={{ height: `${(v / maxM) * 120}px` }} />
+                <span className="text-xs text-gray-400">{MONTHS[(new Date().getMonth() - 5 + i + 12) % 12]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="bg-[#111] border border-white/10 p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-white font-bold">Top Products</h3>
+            <button onClick={() => exportCSV('top-products.csv', ['Product', 'Qty Sold', 'Revenue'], topProducts.map(p => [p.name, p.qty, p.revenue]))} className="text-[#D4AF37] text-xs hover:underline flex items-center gap-1"><Download size={12} /> CSV</button>
+          </div>
+          <div className="space-y-2">
+            {topProducts.length === 0 && <p className="text-gray-500 text-sm">No data</p>}
+            {topProducts.map((p, i) => (
+              <div key={i} className="flex justify-between py-2 border-b border-white/5 text-sm">
+                <span className="text-gray-300">{p.name}</span>
+                <div className="flex gap-4"><span className="text-gray-400">{p.qty} sold</span><span className="text-white">{formatINR(p.revenue)}</span></div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        <div className="bg-[#111] border border-white/10 p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-white font-bold">Payment Status</h3>
+            <button onClick={() => exportCSV('payment-status.csv', ['Status', 'Count'], Object.entries(paymentCounts))} className="text-[#D4AF37] text-xs hover:underline flex items-center gap-1"><Download size={12} /> CSV</button>
+          </div>
+          <div className="space-y-2">
+            {Object.entries(paymentCounts).map(([s, c], i) => (
+              <div key={i} className="flex justify-between py-2 border-b border-white/5 text-sm">
+                <span className="text-gray-300 capitalize">{s}</span>
+                <span className="text-white font-medium">{c}</span>
+              </div>
+            ))}
+            {Object.keys(paymentCounts).length === 0 && <p className="text-gray-500 text-sm">No data</p>}
+          </div>
+        </div>
+        <div className="bg-[#111] border border-white/10 p-4">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-white font-bold">Shipping Status</h3>
+            <button onClick={() => exportCSV('shipping-status.csv', ['Status', 'Count'], Object.entries(shippingCounts))} className="text-[#D4AF37] text-xs hover:underline flex items-center gap-1"><Download size={12} /> CSV</button>
+          </div>
+          <div className="space-y-2">
+            {Object.entries(shippingCounts).map(([s, c], i) => (
+              <div key={i} className="flex justify-between py-2 border-b border-white/5 text-sm">
+                <span className="text-gray-300 capitalize">{s}</span>
+                <span className="text-white font-medium">{c}</span>
+              </div>
+            ))}
+            {Object.keys(shippingCounts).length === 0 && <p className="text-gray-500 text-sm">No data</p>}
+          </div>
+        </div>
+      </div>
+      <button onClick={() => exportCSV('orders.csv', ['ID', 'Customer', 'Total', 'Status', 'Date'], orders.map(o => [o?.id, o?.customer?.name || o?.user?.name, o?.grandTotal || o?.total, o?.status, o?.createdAt || o?.date]))} className="flex items-center gap-2 bg-[#D4AF37] text-black px-4 py-2.5 text-sm font-bold hover:bg-[#e5c158] transition-colors"><Download size={16} /> Export All Orders</button>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PAGE 8: SETTINGS
+// ═══════════════════════════════════════════════════════════════
+
+function SettingsPage() {
+  const [tab, setTab] = useState('general');
+  const tabs = [
+    { key: 'general', label: 'General', icon: Settings },
+    { key: 'gst', label: 'GST', icon: Percent },
+    { key: 'payment', label: 'Payment', icon: CreditCard },
+    { key: 'shipping', label: 'Shipping', icon: Truck },
+    { key: 'branding', label: 'Branding', icon: Star },
+  ];
+  const [saved, setSaved] = useState(false);
+  const showSaved = () => { setSaved(true); setTimeout(() => setSaved(false), 2000); };
+  const [settings, setSettings] = useState(() => {
+    try {
+      const s = localStorage.getItem('app_settings');
+      return s ? JSON.parse(s) : {};
+    } catch { return {}; }
+  });
+  const update = (key, value) => { const ns = { ...settings, [key]: value }; setSettings(ns); try { localStorage.setItem('app_settings', JSON.stringify(ns)); } catch {} };
+
+  return (
+    <div>
+      {saved && <div className="mb-4 bg-green-500/20 text-green-400 text-sm px-4 py-2 rounded">Settings saved successfully</div>}
+      <div className="flex gap-1 mb-6 border-b border-white/10 overflow-x-auto">
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setTab(t.key)} className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${tab === t.key ? 'border-[#D4AF37] text-[#D4AF37]' : 'border-transparent text-gray-400 hover:text-white'}`}>
+            <t.icon size={14} /> {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'general' && (
+        <div className="bg-[#111] border border-white/10 p-6 max-w-lg space-y-4">
+          <h3 className="text-white font-bold mb-4">General Settings</h3>
+          <div><label className="block text-gray-400 text-xs mb-1">Store Name</label><input value={settings.storeName || ''} onChange={e => update('storeName', e.target.value)} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="Store Name" /></div>
+          <div><label className="block text-gray-400 text-xs mb-1">Currency</label><input value="INR" disabled className="w-full bg-white/[0.03] border border-white/[0.08] text-gray-500 text-sm px-3 py-2.5 cursor-not-allowed" /></div>
+          <div><label className="block text-gray-400 text-xs mb-1">Support Email</label><input value={settings.supportEmail || ''} onChange={e => update('supportEmail', e.target.value)} type="email" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="support@example.com" /></div>
+          <div><label className="block text-gray-400 text-xs mb-1">Support Phone</label><input value={settings.supportPhone || ''} onChange={e => update('supportPhone', e.target.value)} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="+91 98765 43210" /></div>
+          <button onClick={showSaved} className="bg-[#D4AF37] text-black px-6 py-2.5 text-sm font-bold hover:bg-[#e5c158] transition-colors">Save</button>
+        </div>
+      )}
+      {tab === 'gst' && (
+        <div className="bg-[#111] border border-white/10 p-6 max-w-lg space-y-4">
+          <h3 className="text-white font-bold mb-4">GST Settings</h3>
+          <div><label className="block text-gray-400 text-xs mb-1">GST Number</label><input value={settings.gstNumber || ''} onChange={e => update('gstNumber', e.target.value)} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="22AAAAA0000A1Z5" /></div>
+          <div><label className="block text-gray-400 text-xs mb-1">Default GST Rate (%)</label><input value={settings.defaultGstRate || 18} onChange={e => update('defaultGstRate', e.target.value)} type="number" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" /></div>
+          <div className="flex items-center gap-3"><input id="gstInc" type="checkbox" checked={settings.gstInclusive || false} onChange={e => update('gstInclusive', e.target.checked)} className="accent-[#D4AF37]" /><label htmlFor="gstInc" className="text-gray-300 text-sm">Default GST Inclusive</label></div>
+          <div className="pt-2"><h4 className="text-gray-400 text-xs mb-2">Common Tax Slabs</h4><div className="flex gap-2">{[5, 12, 18, 28].map(r => <span key={r} className="px-3 py-1 bg-white/5 text-gray-300 text-xs rounded border border-white/10">{r}%</span>)}</div></div>
+          <button onClick={showSaved} className="bg-[#D4AF37] text-black px-6 py-2.5 text-sm font-bold hover:bg-[#e5c158] transition-colors">Save</button>
+        </div>
+      )}
+      {tab === 'payment' && (
+        <div className="bg-[#111] border border-white/10 p-6 max-w-lg space-y-4">
+          <h3 className="text-white font-bold mb-4">Payment Settings</h3>
+          <div className="flex items-center justify-between"><span className="text-gray-300 text-sm">Enable Razorpay</span><button onClick={() => update('razorpayEnabled', !settings.razorpayEnabled)} className={`w-10 h-5 rounded-full transition-colors ${settings.razorpayEnabled ? 'bg-[#D4AF37]' : 'bg-gray-600'}`}><div className={`w-4 h-4 rounded-full bg-white transition-transform ${settings.razorpayEnabled ? 'translate-x-5' : 'translate-x-0.5'}`} /></button></div>
+          <div><label className="block text-gray-400 text-xs mb-1">Razorpay Mode</label><select value={settings.razorpayMode || 'test'} onChange={e => update('razorpayMode', e.target.value)} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37]"><option value="test" className="bg-[#111]">Test</option><option value="live" className="bg-[#111]">Live</option></select></div>
+          <div><label className="block text-gray-400 text-xs mb-1">Key ID</label><input value={settings.razorpayKeyId || ''} onChange={e => update('razorpayKeyId', e.target.value)} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="rzp_test_..." /></div>
+          <div className="flex items-center justify-between"><span className="text-gray-300 text-sm">Enable COD</span><button onClick={() => update('codEnabled', !settings.codEnabled)} className={`w-10 h-5 rounded-full transition-colors ${settings.codEnabled !== false ? 'bg-[#D4AF37]' : 'bg-gray-600'}`}><div className={`w-4 h-4 rounded-full bg-white transition-transform ${settings.codEnabled !== false ? 'translate-x-5' : 'translate-x-0.5'}`} /></button></div>
+          <button onClick={showSaved} className="bg-[#D4AF37] text-black px-6 py-2.5 text-sm font-bold hover:bg-[#e5c158] transition-colors">Save</button>
+        </div>
+      )}
+      {tab === 'shipping' && (
+        <div className="bg-[#111] border border-white/10 p-6 max-w-lg space-y-4">
+          <h3 className="text-white font-bold mb-4">Shipping Settings</h3>
+          <div><label className="block text-gray-400 text-xs mb-1">Free Shipping Threshold (₹)</label><input value={settings.freeShippingThreshold || ''} onChange={e => update('freeShippingThreshold', e.target.value)} type="number" className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="500" /></div>
+          <div><label className="block text-gray-400 text-xs mb-1">Default Courier</label><select value={settings.defaultCourier || ''} onChange={e => update('defaultCourier', e.target.value)} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37]"><option value="" className="bg-[#111]">Select Courier</option><option value="shiprocket" className="bg-[#111]">Shiprocket</option><option value="delhivery" className="bg-[#111]">Delhivery</option><option value="blue_dart" className="bg-[#111]">Blue Dart</option></select></div>
+          <div className="flex items-center justify-between"><span className="text-gray-300 text-sm">COD Available</span><button onClick={() => update('codAvailable', !settings.codAvailable)} className={`w-10 h-5 rounded-full transition-colors ${settings.codAvailable !== false ? 'bg-[#D4AF37]' : 'bg-gray-600'}`}><div className={`w-4 h-4 rounded-full bg-white transition-transform ${settings.codAvailable !== false ? 'translate-x-5' : 'translate-x-0.5'}`} /></button></div>
+          <button onClick={showSaved} className="bg-[#D4AF37] text-black px-6 py-2.5 text-sm font-bold hover:bg-[#e5c158] transition-colors">Save</button>
+        </div>
+      )}
+      {tab === 'branding' && (
+        <div className="bg-[#111] border border-white/10 p-6 max-w-lg space-y-4">
+          <h3 className="text-white font-bold mb-4">Branding</h3>
+          <div><label className="block text-gray-400 text-xs mb-1">Logo URL</label><input value={settings.logoUrl || ''} onChange={e => update('logoUrl', e.target.value)} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="https://..." /></div>
+          <div><label className="block text-gray-400 text-xs mb-1">Favicon URL</label><input value={settings.faviconUrl || ''} onChange={e => update('faviconUrl', e.target.value)} className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder="https://..." /></div>
+          {settings.logoUrl && <div className="pt-2"><img src={settings.logoUrl} alt="Logo preview" className="h-16 object-contain border border-white/10 rounded p-2 bg-white/5" onError={e => { e.target.style.display = 'none'; }} /></div>}
+          <button onClick={showSaved} className="bg-[#D4AF37] text-black px-6 py-2.5 text-sm font-bold hover:bg-[#e5c158] transition-colors">Save</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════
+// MAIN ADMIN COMPONENT
 // ═══════════════════════════════════════════════════════════════
 
 export default function Admin() {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
-
-  const [activeView, setActiveView] = useState('dashboard');
+  const [section, setSection] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  // ── Data states ──────────────────────────────────────────
+  const [refreshKey, setRefreshKey] = useState(0);
   const [products, setProducts] = useState([]);
   const [orders, setOrders] = useState([]);
   const [users, setUsers] = useState([]);
-  const [leads, setLeads] = useState([]);
-  const [coupons, setCoupons] = useState([]);
 
-  // ── Search states ────────────────────────────────────────
-  const [orderSearch, setOrderSearch] = useState('');
-  const [productSearch, setProductSearch] = useState('');
-  const [productStatusFilter, setProductStatusFilter] = useState('all');
-  const [userSearch, setUserSearch] = useState('');
-  const [leadSearch, setLeadSearch] = useState('');
-  const [couponSearch, setCouponSearch] = useState('');
-
-  // ── Modal states ─────────────────────────────────────────
-  const [productModalOpen, setProductModalOpen] = useState(false);
-  const [editingProduct, setEditingProduct] = useState(null);
-  const [productForm, setProductForm] = useState({});
-
-  const [orderDetailOpen, setOrderDetailOpen] = useState(false);
-  const [viewingOrder, setViewingOrder] = useState(null);
-
-  const [userOrdersOpen, setUserOrdersOpen] = useState(false);
-  const [viewingUserOrders, setViewingUserOrders] = useState(null);
-
-  const [couponModalOpen, setCouponModalOpen] = useState(false);
-  const [editingCoupon, setEditingCoupon] = useState(null);
-  const [couponForm, setCouponForm] = useState({});
-
-  // ── Settings form ────────────────────────────────────────
-  const [settingsForm, setSettingsForm] = useState({
-    storeName: 'SWORD',
-    currency: 'INR',
-    gstRate: '18',
-    logoUrl: '',
-    favicon: '',
-    contactEmail: 'admin@sword.com',
-    contactPhone: '+91 95377 97597',
-    address: '',
-    razorpayMode: 'test',
-    codEnabled: true,
-    freeShippingThreshold: '500',
-  });
-
-  // ── Pagination states ────────────────────────────────────
-  const [orderPage, setOrderPage] = useState(1);
-  const [productPage, setProductPage] = useState(1);
-  const [userPage, setUserPage] = useState(1);
-  const [leadPage, setLeadPage] = useState(1);
-  const [couponPage, setCouponPage] = useState(1);
-  const ITEMS_PER_PAGE = 10;
-
-  // ═════════════════════════════════════════════════════════
-  // LOAD DATA
-  // ═════════════════════════════════════════════════════════
+  const refresh = () => setRefreshKey(k => k + 1);
 
   useEffect(() => {
-    setProducts(loadFromStorage('sword_products'));
-    setOrders(loadFromStorage('sword_orders'));
-    setUsers(loadFromStorage('sword_users'));
-    setLeads(loadFromStorage('sword_leads').length > 0 ? loadFromStorage('sword_leads') : loadFromStorage('sword_interested_customers'));
-    setCoupons(loadFromStorage('sword_coupons'));
-
-    const s = loadSettings();
-    if (s?.storeName) {
-      setSettingsForm((prev) => ({ ...prev, ...s }));
-    }
+    try { syncInventoryWithProducts(); } catch (e) { console.error(e); }
   }, []);
 
-  // ═════════════════════════════════════════════════════════
-  // DERIVED DATA (KPIs)
-  // ═════════════════════════════════════════════════════════
-
-  const kpis = useMemo(() => {
-    try {
-      const revenue = orders.reduce((sum, o) => sum + safeNum(o?.grandTotal), 0);
-      const delivered = orders.filter((o) => safeString(o?.status).toLowerCase() === 'delivered').length;
-      const pending = orders.filter((o) => {
-        const s = safeString(o?.status).toLowerCase();
-        return s === 'pending' || s === 'processing';
-      }).length;
-      const lowStock = products.filter((p) => safeNum(p?.stock) > 0 && safeNum(p?.stock) <= 5).length;
-      const outOfStock = products.filter((p) => safeNum(p?.stock) === 0).length;
-
-      return { revenue, totalOrders: orders.length, totalProducts: products.length, delivered, pending, lowStock, outOfStock };
-    } catch {
-      return { revenue: 0, totalOrders: 0, totalProducts: 0, delivered: 0, pending: 0, lowStock: 0, outOfStock: 0 };
-    }
-  }, [orders, products]);
-
-  // Monthly revenue data for chart
-  const monthlyData = useMemo(() => {
-    try {
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-      const data = months.map((m) => ({ month: m, revenue: 0, orders: 0 }));
-      orders.forEach((o) => {
-        try {
-          const d = new Date(o?.createdAt);
-          if (!isNaN(d?.getTime?.())) {
-            const idx = d.getMonth();
-            data[idx].revenue += safeNum(o?.grandTotal);
-            data[idx].orders += 1;
-          }
-        } catch { /* noop */ }
-      });
-      const maxRev = Math.max(...data.map((d) => d.revenue), 1);
-      return { data, maxRev };
-    } catch {
-      return { data: [], maxRev: 1 };
-    }
-  }, [orders]);
-
-  // Top products
-  const topProducts = useMemo(() => {
-    try {
-      const productSales = {};
-      orders.forEach((o) => {
-        (o?.items || o?.orderItems || []).forEach((item) => {
-          const pid = item?.productId || item?.id;
-          if (pid) {
-            productSales[pid] = (productSales[pid] || 0) + safeNum(item?.quantity);
-          }
-        });
-      });
-      return products
-        .map((p) => ({ ...p, sold: productSales[p?.id] || 0 }))
-        .sort((a, b) => b.sold - a.sold)
-        .slice(0, 5);
-    } catch {
-      return products.slice(0, 5);
-    }
-  }, [products, orders]);
-
-  // Recent orders
-  const recentOrders = useMemo(() => {
-    try {
-      return [...orders]
-        .sort((a, b) => new Date(b?.createdAt || 0) - new Date(a?.createdAt || 0))
-        .slice(0, 5);
-    } catch {
-      return orders.slice(0, 5);
-    }
-  }, [orders]);
-
-  // Activity log
-  const activityLog = useMemo(() => {
-    try {
-      const activities = [];
-      orders.slice(0, 5).forEach((o) => {
-        activities.push({
-          text: `Order #${String(o?.id).slice(-6)} placed`,
-          date: o?.createdAt,
-          type: 'order',
-        });
-      });
-      return activities.sort((a, b) => new Date(b?.date || 0) - new Date(a?.date || 0));
-    } catch {
-      return [];
-    }
-  }, [orders]);
-
-  // ═════════════════════════════════════════════════════════
-  // FILTERED & PAGINATED DATA
-  // ═════════════════════════════════════════════════════════
-
-  const filteredOrders = useMemo(() => {
-    try {
-      const s = orderSearch.toLowerCase().trim();
-      return orders.filter((o) => {
-        if (!s) return true;
-        const id = safeString(o?.id).toLowerCase();
-        const customer = safeString(o?.customerName || o?.customer?.name).toLowerCase();
-        return id.includes(s) || customer.includes(s);
-      });
-    } catch { return []; }
-  }, [orders, orderSearch]);
-
-  const pagedOrders = useMemo(() => {
-    try {
-      const start = (orderPage - 1) * ITEMS_PER_PAGE;
-      return filteredOrders.slice(start, start + ITEMS_PER_PAGE);
-    } catch { return []; }
-  }, [filteredOrders, orderPage]);
-
-  const filteredProducts = useMemo(() => {
-    try {
-      const s = productSearch.toLowerCase().trim();
-      const list = products.filter((p) => {
-        if (!s) return true;
-        const name = safeString(p?.name).toLowerCase();
-        const sku = safeString(p?.sku).toLowerCase();
-        return name.includes(s) || sku.includes(s);
-      });
-      if (productStatusFilter === 'all') return list;
-      return list.filter((p) => safeString(p?.status).toLowerCase() === productStatusFilter);
-    } catch { return []; }
-  }, [products, productSearch, productStatusFilter]);
-
-  const pagedProducts = useMemo(() => {
-    try {
-      const start = (productPage - 1) * ITEMS_PER_PAGE;
-      return filteredProducts.slice(start, start + ITEMS_PER_PAGE);
-    } catch { return []; }
-  }, [filteredProducts, productPage]);
-
-  const filteredUsers = useMemo(() => {
-    try {
-      const s = userSearch.toLowerCase().trim();
-      return users.filter((u) => {
-        if (!s) return true;
-        const name = safeString(u?.name || u?.displayName).toLowerCase();
-        const email = safeString(u?.email).toLowerCase();
-        const phone = safeString(u?.phone).toLowerCase();
-        return name.includes(s) || email.includes(s) || phone.includes(s);
-      });
-    } catch { return []; }
-  }, [users, userSearch]);
-
-  const pagedUsers = useMemo(() => {
-    try {
-      const start = (userPage - 1) * ITEMS_PER_PAGE;
-      return filteredUsers.slice(start, start + ITEMS_PER_PAGE);
-    } catch { return []; }
-  }, [filteredUsers, userPage]);
-
-  const filteredLeads = useMemo(() => {
-    try {
-      const s = leadSearch.toLowerCase().trim();
-      return leads.filter((l) => {
-        if (!s) return true;
-        const name = safeString(l?.name).toLowerCase();
-        const email = safeString(l?.email).toLowerCase();
-        const phone = safeString(l?.phone).toLowerCase();
-        const source = safeString(l?.source).toLowerCase();
-        return name.includes(s) || email.includes(s) || phone.includes(s) || source.includes(s);
-      });
-    } catch { return []; }
-  }, [leads, leadSearch]);
-
-  const pagedLeads = useMemo(() => {
-    try {
-      const start = (leadPage - 1) * ITEMS_PER_PAGE;
-      return filteredLeads.slice(start, start + ITEMS_PER_PAGE);
-    } catch { return []; }
-  }, [filteredLeads, leadPage]);
-
-  const filteredCoupons = useMemo(() => {
-    try {
-      const s = couponSearch.toLowerCase().trim();
-      return coupons.filter((c) => {
-        if (!s) return true;
-        const code = safeString(c?.code).toLowerCase();
-        return code.includes(s);
-      });
-    } catch { return []; }
-  }, [coupons, couponSearch]);
-
-  const pagedCoupons = useMemo(() => {
-    try {
-      const start = (couponPage - 1) * ITEMS_PER_PAGE;
-      return filteredCoupons.slice(start, start + ITEMS_PER_PAGE);
-    } catch { return []; }
-  }, [filteredCoupons, couponPage]);
-
-  const pageCounts = {
-    orders: Math.max(1, Math.ceil(filteredOrders.length / ITEMS_PER_PAGE)),
-    products: Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE)),
-    users: Math.max(1, Math.ceil(filteredUsers.length / ITEMS_PER_PAGE)),
-    leads: Math.max(1, Math.ceil(filteredLeads.length / ITEMS_PER_PAGE)),
-    coupons: Math.max(1, Math.ceil(filteredCoupons.length / ITEMS_PER_PAGE)),
-  };
-
-  // ═════════════════════════════════════════════════════════
-  // HANDLERS
-  // ═════════════════════════════════════════════════════════
-
-  function handleLogout() {
-    try { logout(); } catch { /* noop */ }
-    navigate('/');
-  }
-
-  function getInitials(name) {
-    try {
-      const s = safeString(name);
-      if (!s) return 'A';
-      return s.split(' ').map((w) => w[0]).join('').toUpperCase().slice(0, 2);
-    } catch { return 'A'; }
-  }
-
-  // ── Product Handlers ─────────────────────────────────────
-
-  function openAddProduct() {
-    setEditingProduct(null);
-    setProductForm({
-      name: '', slug: '', description: '', short_description: '',
-      price: '', compare_price: '', cost_price: '', sku: '', stock: '',
-      category: '', brand: '', is_active: true, is_featured: false,
-      tags: '', seo_title: '', seo_description: '', status: 'active',
-    });
-    setProductModalOpen(true);
-  }
-
-  function openEditProduct(product) {
-    try {
-      setEditingProduct(product);
-      setProductForm({
-        name: safeString(product?.name),
-        slug: safeString(product?.slug),
-        description: safeString(product?.description),
-        short_description: safeString(product?.short_description),
-        price: safeString(product?.price),
-        compare_price: safeString(product?.compare_price),
-        cost_price: safeString(product?.cost_price),
-        sku: safeString(product?.sku),
-        stock: safeString(product?.stock),
-        category: safeString(product?.category),
-        brand: safeString(product?.brand),
-        is_active: product?.is_active !== false,
-        is_featured: product?.is_featured === true,
-        tags: Array.isArray(product?.tags) ? product.tags.join(', ') : safeString(product?.tags),
-        seo_title: safeString(product?.seo_title),
-        seo_description: safeString(product?.seo_description),
-        status: safeString(product?.status) || 'active',
-      });
-      setProductModalOpen(true);
-    } catch { /* noop */ }
-  }
-
-  function closeProductModal() {
-    setProductModalOpen(false);
-    setEditingProduct(null);
-    setProductForm({});
-  }
-
-  function saveProduct() {
-    try {
-      const name = safeString(productForm?.name).trim();
-      if (!name) return;
-
-      const price = safeNum(productForm?.price);
-      const stock = safeNum(productForm?.stock);
-      const compare_price = safeNum(productForm?.compare_price);
-      const cost_price = safeNum(productForm?.cost_price);
-
-      if (editingProduct) {
-        // ═══════════════════════════════════════════════
-        // CRITICAL FIX: Product matching uses ONLY id field
-        // NEVER use _id or fallback checks
-        // ═══════════════════════════════════════════════
-        const targetId = editingProduct?.id;
-        if (!targetId) return; // Guard: reject mass update without ID
-
-        setProducts((prev) => {
-          try {
-            const updated = prev.map((p) => {
-              if (p?.id === targetId) {
-                // ONLY match by id - spread to avoid shared references
-                return {
-                  ...p,
-                  name,
-                  slug: safeString(productForm?.slug) || name.toLowerCase().replace(/\s+/g, '-'),
-                  description: safeString(productForm?.description),
-                  short_description: safeString(productForm?.short_description),
-                  price,
-                  compare_price,
-                  cost_price,
-                  sku: safeString(productForm?.sku),
-                  stock,
-                  category: safeString(productForm?.category),
-                  brand: safeString(productForm?.brand),
-                  is_active: productForm?.is_active !== false,
-                  is_featured: productForm?.is_featured === true,
-                  tags: safeString(productForm?.tags),
-                  seo_title: safeString(productForm?.seo_title),
-                  seo_description: safeString(productForm?.seo_description),
-                  status: safeString(productForm?.status) || 'active',
-                  updatedAt: new Date().toISOString(),
-                };
-              }
-              return p; // Unchanged product
-            });
-            saveToStorage('sword_products', updated);
-            return updated;
-          } catch {
-            return prev;
-          }
-        });
-      } else {
-        // Create new product
-        const newProduct = {
-          id: generateId('prod'),
-          name,
-          slug: safeString(productForm?.slug) || name.toLowerCase().replace(/\s+/g, '-'),
-          description: safeString(productForm?.description),
-          short_description: safeString(productForm?.short_description),
-          price,
-          compare_price,
-          cost_price,
-          sku: safeString(productForm?.sku) || generateId('SKU'),
-          stock,
-          category: safeString(productForm?.category),
-          brand: safeString(productForm?.brand),
-          is_active: productForm?.is_active !== false,
-          is_featured: productForm?.is_featured === true,
-          tags: safeString(productForm?.tags),
-          seo_title: safeString(productForm?.seo_title),
-          seo_description: safeString(productForm?.seo_description),
-          status: safeString(productForm?.status) || 'active',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        setProducts((prev) => {
-          const updated = [...prev, newProduct];
-          saveToStorage('sword_products', updated);
-          return updated;
-        });
-      }
-      closeProductModal();
-    } catch { /* noop */ }
-  }
-
-  function deleteProduct(product) {
-    try {
-      const targetId = product?.id;
-      if (!targetId) return;
-      const ok = window.confirm(`Delete "${safeString(product?.name)}"? This cannot be undone.`);
-      if (!ok) return;
-      setProducts((prev) => {
-        try {
-          const updated = prev.filter((p) => p?.id !== targetId);
-          saveToStorage('sword_products', updated);
-          return updated;
-        } catch {
-          return prev;
-        }
-      });
-    } catch { /* noop */ }
-  }
-
-  function toggleFeatured(product) {
-    try {
-      const targetId = product?.id;
-      if (!targetId) return;
-      setProducts((prev) => {
-        try {
-          const updated = prev.map((p) => {
-            if (p?.id === targetId) {
-              return { ...p, is_featured: !p?.is_featured, updatedAt: new Date().toISOString() };
-            }
-            return p;
-          });
-          saveToStorage('sword_products', updated);
-          return updated;
-        } catch {
-          return prev;
-        }
-      });
-    } catch { /* noop */ }
-  }
-
-  // ── Order Handlers ───────────────────────────────────────
-
-  function updateOrderStatus(orderId, newStatus) {
-    try {
-      if (!orderId || !newStatus) return;
-      setOrders((prev) => {
-        try {
-          const updated = prev.map((o) => {
-            if (o?.id === orderId) {
-              return { ...o, status: newStatus, updatedAt: new Date().toISOString() };
-            }
-            return o;
-          });
-          saveToStorage('sword_orders', updated);
-          return updated;
-        } catch {
-          return prev;
-        }
-      });
-      // Update viewing order if open
-      if (viewingOrder?.id === orderId) {
-        setViewingOrder((prev) => prev ? { ...prev, status: newStatus } : prev);
-      }
-    } catch { /* noop */ }
-  }
-
-  function openOrderDetail(order) {
-    setViewingOrder(order);
-    setOrderDetailOpen(true);
-  }
-
-  // ── User Handlers ────────────────────────────────────────
-
-  function toggleBanUser(userId) {
-    try {
-      if (!userId) return;
-      setUsers((prev) => {
-        try {
-          const updated = prev.map((u) => {
-            if (u?.id === userId) {
-              const newStatus = safeString(u?.status).toLowerCase() === 'banned' ? 'active' : 'banned';
-              return { ...u, status: newStatus };
-            }
-            return u;
-          });
-          saveToStorage('sword_users', updated);
-          return updated;
-        } catch {
-          return prev;
-        }
-      });
-    } catch { /* noop */ }
-  }
-
-  function viewUserOrders(userData) {
-    setViewingUserOrders(userData);
-    setUserOrdersOpen(true);
-  }
-
-  // ── Coupon Handlers ──────────────────────────────────────
-
-  function openAddCoupon() {
-    setEditingCoupon(null);
-    setCouponForm({
-      code: '', type: 'percentage', value: '', min_order: '',
-      max_discount: '', usage_limit: '', expiry_date: '', auto_apply: false, is_active: true,
-    });
-    setCouponModalOpen(true);
-  }
-
-  function openEditCoupon(coupon) {
-    try {
-      setEditingCoupon(coupon);
-      setCouponForm({
-        code: safeString(coupon?.code),
-        type: safeString(coupon?.type) || 'percentage',
-        value: safeString(coupon?.value),
-        min_order: safeString(coupon?.min_order),
-        max_discount: safeString(coupon?.max_discount),
-        usage_limit: safeString(coupon?.usage_limit),
-        expiry_date: safeString(coupon?.expiry_date),
-        auto_apply: coupon?.auto_apply === true,
-        is_active: coupon?.is_active !== false,
-      });
-      setCouponModalOpen(true);
-    } catch { /* noop */ }
-  }
-
-  function closeCouponModal() {
-    setCouponModalOpen(false);
-    setEditingCoupon(null);
-    setCouponForm({});
-  }
-
-  function saveCoupon() {
-    try {
-      const code = safeString(couponForm?.code).trim().toUpperCase();
-      if (!code) return;
-      const value = safeNum(couponForm?.value);
-
-      if (editingCoupon) {
-        const targetId = editingCoupon?.id;
-        if (!targetId) return;
-        setCoupons((prev) => {
-          try {
-            const updated = prev.map((c) => {
-              if (c?.id === targetId) {
-                return {
-                  ...c,
-                  code,
-                  type: safeString(couponForm?.type) || 'percentage',
-                  value,
-                  min_order: safeNum(couponForm?.min_order),
-                  max_discount: safeNum(couponForm?.max_discount),
-                  usage_limit: safeNum(couponForm?.usage_limit),
-                  expiry_date: safeString(couponForm?.expiry_date),
-                  auto_apply: couponForm?.auto_apply === true,
-                  is_active: couponForm?.is_active !== false,
-                  updatedAt: new Date().toISOString(),
-                };
-              }
-              return c;
-            });
-            saveToStorage('sword_coupons', updated);
-            return updated;
-          } catch {
-            return prev;
-          }
-        });
-      } else {
-        const newCoupon = {
-          id: generateId('coup'),
-          code,
-          type: safeString(couponForm?.type) || 'percentage',
-          value,
-          min_order: safeNum(couponForm?.min_order),
-          max_discount: safeNum(couponForm?.max_discount),
-          usage_limit: safeNum(couponForm?.usage_limit),
-          expiry_date: safeString(couponForm?.expiry_date),
-          auto_apply: couponForm?.auto_apply === true,
-          is_active: true,
-          usage_count: 0,
-          createdAt: new Date().toISOString(),
-        };
-        setCoupons((prev) => {
-          const updated = [...prev, newCoupon];
-          saveToStorage('sword_coupons', updated);
-          return updated;
-        });
-      }
-      closeCouponModal();
-    } catch { /* noop */ }
-  }
-
-  function deleteCoupon(coupon) {
-    try {
-      const targetId = coupon?.id;
-      if (!targetId) return;
-      const ok = window.confirm(`Delete coupon "${safeString(coupon?.code)}"?`);
-      if (!ok) return;
-      setCoupons((prev) => {
-        try {
-          const updated = prev.filter((c) => c?.id !== targetId);
-          saveToStorage('sword_coupons', updated);
-          return updated;
-        } catch {
-          return prev;
-        }
-      });
-    } catch { /* noop */ }
-  }
-
-  // ── Settings Handler ─────────────────────────────────────
-
-  function saveSettings() {
-    try {
-      saveToStorage('sword_settings', settingsForm);
-      alert('Settings saved successfully!');
-    } catch {
-      alert('Failed to save settings.');
-    }
-  }
-
-  // ═════════════════════════════════════════════════════════
-  // VIEWS
-  // ═════════════════════════════════════════════════════════
-
-  function DashboardView() {
-    return (
-      <div>
-        <h2 className="text-2xl font-bold mb-6">Dashboard</h2>
-
-        {/* KPI Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
-          <KpiCard icon={IndianRupee} label="Total Revenue" value={formatINR(kpis.revenue)}
-            subtext={`${kpis.delivered} delivered orders`} colorClass="bg-emerald-500/15 text-emerald-400" />
-          <KpiCard icon={ShoppingBag} label="Total Orders" value={kpis.totalOrders}
-            subtext={`${kpis.pending} pending`} colorClass="bg-blue-500/15 text-blue-400" />
-          <KpiCard icon={Package} label="Products" value={kpis.totalProducts}
-            subtext={`${kpis.lowStock} low stock`} colorClass="bg-purple-500/15 text-purple-400" />
-          <KpiCard icon={CheckCircle} label="Delivered" value={kpis.delivered}
-            subtext="Completed orders" colorClass="bg-green-500/15 text-green-400" />
-          <KpiCard icon={AlertTriangle} label="Pending" value={kpis.pending}
-            subtext="Awaiting action" colorClass="bg-yellow-500/15 text-yellow-400" />
-          <KpiCard icon={TrendingDown} label="Low Stock" value={kpis.lowStock}
-            subtext={`${kpis.outOfStock} out of stock`} colorClass="bg-red-500/15 text-red-400" />
-        </div>
-
-        {/* Revenue Chart + Top Products */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          {/* Monthly Revenue Chart */}
-          <div className="lg:col-span-2 rounded-xl p-5 bg-[#1a1a1a] border border-white/5">
-            <h3 className="text-lg font-semibold mb-4">Monthly Revenue</h3>
-            <div className="flex items-end gap-2 h-48">
-              {monthlyData.data.map((d, i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="w-full flex flex-col items-center">
-                    <span className="text-[10px] text-gray-500 mb-1">{formatCompactINR(d.revenue)}</span>
-                    <div
-                      className="w-full max-w-[32px] rounded-t-md bg-gradient-to-t from-[#D4AF37] to-[#D4AF37]/60 min-h-[4px]"
-                      style={{ height: `${Math.max(4, (d.revenue / monthlyData.maxRev) * 140)}px` }}
-                    />
-                  </div>
-                  <span className="text-[10px] text-gray-500">{d.month}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Top Products */}
-          <div className="rounded-xl p-5 bg-[#1a1a1a] border border-white/5">
-            <h3 className="text-lg font-semibold mb-4">Top Products</h3>
-            {topProducts.length === 0 ? (
-              <p className="text-sm text-gray-500">No sales data yet.</p>
-            ) : (
-              <div className="space-y-3">
-                {topProducts.map((p, i) => (
-                  <div key={p?.id || i} className="flex items-center gap-3">
-                    <span className="text-xs text-gray-500 w-4">{i + 1}</span>
-                    <div className="w-8 h-8 rounded-lg bg-white/5 flex items-center justify-center overflow-hidden">
-                      {p?.image ? (
-                        <img src={p.image} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <Package size={14} className="text-gray-500" />
-                      )}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{safeString(p?.name) || 'Unnamed'}</p>
-                      <p className="text-xs text-gray-500">{formatINR(p?.price)}</p>
-                    </div>
-                    <span className="text-xs text-[#D4AF37]">{safeNum(p?.sold)} sold</span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Recent Orders */}
-        <div className="rounded-xl p-5 bg-[#1a1a1a] border border-white/5">
-          <h3 className="text-lg font-semibold mb-4">Recent Orders</h3>
-          {recentOrders.length === 0 ? (
-            <p className="text-sm text-gray-500">No orders yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 text-gray-400 text-left">
-                    <th className="pb-3 font-medium pr-4">Order #</th>
-                    <th className="pb-3 font-medium pr-4">Customer</th>
-                    <th className="pb-3 font-medium pr-4">Total</th>
-                    <th className="pb-3 font-medium pr-4">Status</th>
-                    <th className="pb-3 font-medium">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentOrders.map((o, idx) => (
-                    <tr key={o?.id || idx} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="py-3 pr-4 font-mono text-xs text-gray-400">#{String(o?.id).slice(-6)}</td>
-                      <td className="py-3 pr-4">{safeString(o?.customerName || o?.customer?.name) || 'Guest'}</td>
-                      <td className="py-3 pr-4 font-medium">{formatINR(o?.grandTotal)}</td>
-                      <td className="py-3 pr-4"><OrderStatusBadge status={o?.status} /></td>
-                      <td className="py-3 text-gray-400">{safeDate(o?.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  function OrdersView() {
-    return (
-      <div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-          <h2 className="text-2xl font-bold">Orders</h2>
-          <div className="relative w-full sm:w-72">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-            <input
-              type="text"
-              value={orderSearch}
-              onChange={(e) => { setOrderSearch(e.target.value); setOrderPage(1); }}
-              placeholder="Search by order # or customer..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-            />
-          </div>
-        </div>
-
-        <div className="rounded-xl overflow-hidden bg-[#1a1a1a] border border-white/5">
-          {pagedOrders.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              {orderSearch ? 'No matching orders.' : 'No orders found.'}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 text-gray-400 text-left">
-                    <th className="py-3 px-4 font-medium">Order #</th>
-                    <th className="py-3 px-4 font-medium">Customer</th>
-                    <th className="py-3 px-4 font-medium">Items</th>
-                    <th className="py-3 px-4 font-medium">Total</th>
-                    <th className="py-3 px-4 font-medium">Status</th>
-                    <th className="py-3 px-4 font-medium">Date</th>
-                    <th className="py-3 px-4 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagedOrders.map((o) => (
-                    <tr key={o?.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="py-3 px-4 font-mono text-xs text-gray-400">#{String(o?.id).slice(-6)}</td>
-                      <td className="py-3 px-4">{safeString(o?.customerName || o?.customer?.name) || 'Guest'}</td>
-                      <td className="py-3 px-4">{(() => {
-                        try { const items = o?.items || o?.orderItems || []; return Array.isArray(items) ? items.length : 0; }
-                        catch { return 0; }
-                      })()}</td>
-                      <td className="py-3 px-4 font-medium">{formatINR(o?.grandTotal)}</td>
-                      <td className="py-3 px-4"><OrderStatusBadge status={o?.status} /></td>
-                      <td className="py-3 px-4 text-gray-400">{safeDate(o?.createdAt)}</td>
-                      <td className="py-3 px-4">
-                        <button
-                          onClick={() => openOrderDetail(o)}
-                          className="p-1.5 rounded-lg hover:bg-white/10 text-blue-400 transition-colors"
-                          title="View details"
-                        >
-                          <Eye size={16} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        <Pagination page={orderPage} setPage={setOrderPage} pageCount={pageCounts.orders}
-          totalLabel={`${filteredOrders.length} order(s)`} />
-      </div>
-    );
-  }
-
-  function ProductsView() {
-    return (
-      <div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-          <h2 className="text-2xl font-bold">Products</h2>
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <div className="relative flex-1 sm:flex-none sm:w-56">
-              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-              <input
-                type="text"
-                value={productSearch}
-                onChange={(e) => { setProductSearch(e.target.value); setProductPage(1); }}
-                placeholder="Search by name or SKU..."
-                className="w-full pl-10 pr-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <select
-              value={productStatusFilter}
-              onChange={(e) => { setProductStatusFilter(e.target.value); setProductPage(1); }}
-              className="px-3 py-2.5 rounded-lg text-sm border border-white/[0.12] bg-white/[0.06] text-white outline-none focus:border-[#D4AF37]/50"
-            >
-              <option value="all">All Status</option>
-              <option value="active">Active</option>
-              <option value="draft">Draft</option>
-              <option value="archived">Archived</option>
-            </select>
-            <button
-              onClick={openAddProduct}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#D4AF37] text-black text-sm font-semibold hover:bg-[#C4A030] transition-colors"
-            >
-              <Plus size={16} /> Add
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-xl overflow-hidden bg-[#1a1a1a] border border-white/5">
-          {pagedProducts.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">
-              {productSearch || productStatusFilter !== 'all' ? 'No matching products.' : 'No products found.'}
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 text-gray-400 text-left">
-                    <th className="py-3 px-4 font-medium">Image</th>
-                    <th className="py-3 px-4 font-medium">Name</th>
-                    <th className="py-3 px-4 font-medium">SKU</th>
-                    <th className="py-3 px-4 font-medium">Price</th>
-                    <th className="py-3 px-4 font-medium">Stock</th>
-                    <th className="py-3 px-4 font-medium">Status</th>
-                    <th className="py-3 px-4 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagedProducts.map((p) => (
-                    <tr key={p?.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="py-3 px-4">
-                        <div className="w-10 h-10 rounded-lg bg-white/5 flex items-center justify-center overflow-hidden">
-                          {p?.image ? (
-                            <img src={p.image} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <Package size={16} className="text-gray-500" />
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{safeString(p?.name) || 'Unnamed'}</span>
-                          {p?.is_featured && <Star size={14} className="text-[#D4AF37] fill-[#D4AF37]" />}
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 font-mono text-xs text-gray-400">{safeString(p?.sku) || '-'}</td>
-                      <td className="py-3 px-4 font-medium">{formatINR(p?.price)}</td>
-                      <td className="py-3 px-4">
-                        <span className={safeNum(p?.stock) <= 5 ? 'text-red-400 font-medium' : 'text-green-400'}>
-                          {safeNum(p?.stock)}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4"><ProductStatusBadge status={p?.status || (p?.is_active !== false ? 'active' : 'draft')} /></td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => toggleFeatured(p)}
-                            className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${p?.is_featured ? 'text-[#D4AF37]' : 'text-gray-500'}`}
-                            title={p?.is_featured ? 'Unfeature' : 'Feature'}
-                          >
-                            <Star size={16} className={p?.is_featured ? 'fill-[#D4AF37]' : ''} />
-                          </button>
-                          <button
-                            onClick={() => openEditProduct(p)}
-                            className="p-1.5 rounded-lg hover:bg-white/10 text-blue-400 transition-colors"
-                            title="Edit"
-                          >
-                            <Pencil size={16} />
-                          </button>
-                          <button
-                            onClick={() => deleteProduct(p)}
-                            className="p-1.5 rounded-lg hover:bg-white/10 text-red-400 transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        <Pagination page={productPage} setPage={setProductPage} pageCount={pageCounts.products}
-          totalLabel={`${filteredProducts.length} product(s)`} />
-      </div>
-    );
-  }
-
-  function UsersView() {
-    const userOrders = (userId) => {
-      if (!userId) return [];
-      return orders.filter((o) => (o?.customerId || o?.userId) === userId);
-    };
-
-    return (
-      <div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-          <h2 className="text-2xl font-bold">Users</h2>
-          <div className="relative w-full sm:w-72">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-            <input
-              type="text"
-              value={userSearch}
-              onChange={(e) => { setUserSearch(e.target.value); setUserPage(1); }}
-              placeholder="Search by name, email or phone..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-            />
-          </div>
-        </div>
-
-        <div className="rounded-xl overflow-hidden bg-[#1a1a1a] border border-white/5">
-          {pagedUsers.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">{userSearch ? 'No matching users.' : 'No users found.'}</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 text-gray-400 text-left">
-                    <th className="py-3 px-4 font-medium">User</th>
-                    <th className="py-3 px-4 font-medium">Email</th>
-                    <th className="py-3 px-4 font-medium">Phone</th>
-                    <th className="py-3 px-4 font-medium">Role</th>
-                    <th className="py-3 px-4 font-medium">Status</th>
-                    <th className="py-3 px-4 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagedUsers.map((u) => (
-                    <tr key={u?.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-3">
-                          {u?.avatar ? (
-                            <img src={u.avatar} alt="" className="w-8 h-8 rounded-full object-cover" />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs font-medium">
-                              {getInitials(u?.name || u?.displayName)}
-                            </div>
-                          )}
-                          <span className="font-medium">{safeString(u?.name || u?.displayName) || 'Unknown'}</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-4 text-gray-400">{safeString(u?.email) || '-'}</td>
-                      <td className="py-3 px-4 text-gray-400">{safeString(u?.phone) || '-'}</td>
-                      <td className="py-3 px-4"><UserRoleBadge role={u?.role} /></td>
-                      <td className="py-3 px-4"><UserStatusBadge status={u?.status || 'active'} /></td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => viewUserOrders(u)}
-                            className="p-1.5 rounded-lg hover:bg-white/10 text-blue-400 transition-colors"
-                            title="View orders"
-                          >
-                            <Eye size={16} />
-                          </button>
-                          <button
-                            onClick={() => toggleBanUser(u?.id)}
-                            className={`p-1.5 rounded-lg hover:bg-white/10 transition-colors ${safeString(u?.status).toLowerCase() === 'banned' ? 'text-green-400' : 'text-red-400'}`}
-                            title={safeString(u?.status).toLowerCase() === 'banned' ? 'Unban' : 'Ban'}
-                          >
-                            {safeString(u?.status).toLowerCase() === 'banned' ? <CheckCircle size={16} /> : <Ban size={16} />}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        <Pagination page={userPage} setPage={setUserPage} pageCount={pageCounts.users}
-          totalLabel={`${filteredUsers.length} user(s)`} />
-
-        {/* User Orders Modal */}
-        {userOrdersOpen && viewingUserOrders && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
-            <div className="w-full max-w-2xl max-h-[80vh] rounded-xl p-6 border border-white/10 bg-[#1a1a1a] overflow-y-auto">
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="text-lg font-semibold">
-                  Orders: {safeString(viewingUserOrders?.name || viewingUserOrders?.displayName)}
-                </h3>
-                <button onClick={() => { setUserOrdersOpen(false); setViewingUserOrders(null); }}
-                  className="p-1.5 rounded-lg hover:bg-white/10 transition-colors">
-                  <X size={20} />
-                </button>
-              </div>
-              {userOrders(viewingUserOrders?.id).length === 0 ? (
-                <p className="text-gray-500">No orders for this user.</p>
-              ) : (
-                <div className="space-y-2">
-                  {userOrders(viewingUserOrders?.id).map((o) => (
-                    <div key={o?.id} className="p-3 rounded-lg bg-white/[0.04] border border-white/5">
-                      <div className="flex items-center justify-between">
-                        <span className="font-mono text-xs text-gray-400">#{String(o?.id).slice(-6)}</span>
-                        <OrderStatusBadge status={o?.status} />
-                      </div>
-                      <p className="text-sm font-medium mt-1">{formatINR(o?.grandTotal)}</p>
-                      <p className="text-xs text-gray-500">{safeDate(o?.createdAt)}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  function LeadsView() {
-    return (
-      <div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-          <h2 className="text-2xl font-bold">Leads</h2>
-          <div className="relative w-full sm:w-72">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-            <input
-              type="text"
-              value={leadSearch}
-              onChange={(e) => { setLeadSearch(e.target.value); setLeadPage(1); }}
-              placeholder="Search leads..."
-              className="w-full pl-10 pr-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-            />
-          </div>
-        </div>
-
-        <div className="rounded-xl overflow-hidden bg-[#1a1a1a] border border-white/5">
-          {pagedLeads.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">{leadSearch ? 'No matching leads.' : 'No leads found.'}</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 text-gray-400 text-left">
-                    <th className="py-3 px-4 font-medium">Name</th>
-                    <th className="py-3 px-4 font-medium">Email</th>
-                    <th className="py-3 px-4 font-medium">Phone</th>
-                    <th className="py-3 px-4 font-medium">Source</th>
-                    <th className="py-3 px-4 font-medium">Status</th>
-                    <th className="py-3 px-4 font-medium">Date</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagedLeads.map((l) => (
-                    <tr key={l?.id || JSON.stringify(l)} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="py-3 px-4 font-medium">{safeString(l?.name) || 'Unknown'}</td>
-                      <td className="py-3 px-4 text-gray-400">{safeString(l?.email) || '-'}</td>
-                      <td className="py-3 px-4 text-gray-400">{safeString(l?.phone) || '-'}</td>
-                      <td className="py-3 px-4"><LeadSourceBadge source={l?.source} /></td>
-                      <td className="py-3 px-4"><LeadStatusBadge status={l?.status || 'new'} /></td>
-                      <td className="py-3 px-4 text-gray-400">{safeDate(l?.createdAt)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        <Pagination page={leadPage} setPage={setLeadPage} pageCount={pageCounts.leads}
-          totalLabel={`${filteredLeads.length} lead(s)`} />
-      </div>
-    );
-  }
-
-  function CouponsView() {
-    return (
-      <div>
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
-          <h2 className="text-2xl font-bold">Coupons</h2>
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <div className="relative flex-1 sm:flex-none sm:w-56">
-              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
-              <input
-                type="text"
-                value={couponSearch}
-                onChange={(e) => { setCouponSearch(e.target.value); setCouponPage(1); }}
-                placeholder="Search coupon code..."
-                className="w-full pl-10 pr-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <button
-              onClick={openAddCoupon}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-[#D4AF37] text-black text-sm font-semibold hover:bg-[#C4A030] transition-colors"
-            >
-              <Plus size={16} /> Add
-            </button>
-          </div>
-        </div>
-
-        <div className="rounded-xl overflow-hidden bg-[#1a1a1a] border border-white/5">
-          {pagedCoupons.length === 0 ? (
-            <div className="p-8 text-center text-gray-500">{couponSearch ? 'No matching coupons.' : 'No coupons found.'}</div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 text-gray-400 text-left">
-                    <th className="py-3 px-4 font-medium">Code</th>
-                    <th className="py-3 px-4 font-medium">Type</th>
-                    <th className="py-3 px-4 font-medium">Value</th>
-                    <th className="py-3 px-4 font-medium">Min Order</th>
-                    <th className="py-3 px-4 font-medium">Usage</th>
-                    <th className="py-3 px-4 font-medium">Expiry</th>
-                    <th className="py-3 px-4 font-medium">Status</th>
-                    <th className="py-3 px-4 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagedCoupons.map((c) => (
-                    <tr key={c?.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="py-3 px-4 font-mono font-medium">{safeString(c?.code)}</td>
-                      <td className="py-3 px-4"><CouponTypeBadge type={c?.type} /></td>
-                      <td className="py-3 px-4">
-                        {safeString(c?.type) === 'percentage' ? `${safeNum(c?.value)}%` : safeString(c?.type) === 'free_shipping' ? 'Free' : formatINR(c?.value)}
-                      </td>
-                      <td className="py-3 px-4 text-gray-400">{safeNum(c?.min_order) > 0 ? formatINR(c?.min_order) : '-'}</td>
-                      <td className="py-3 px-4 text-gray-400">{safeNum(c?.usage_count)} / {safeNum(c?.usage_limit) || '∞'}</td>
-                      <td className="py-3 px-4 text-gray-400">{safeDate(c?.expiry_date)}</td>
-                      <td className="py-3 px-4">
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${c?.is_active !== false ? 'bg-green-500/15 text-green-400' : 'bg-gray-500/15 text-gray-400'}`}>
-                          {c?.is_active !== false ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <div className="flex items-center gap-1">
-                          <button onClick={() => openEditCoupon(c)}
-                            className="p-1.5 rounded-lg hover:bg-white/10 text-blue-400 transition-colors" title="Edit">
-                            <Pencil size={16} />
-                          </button>
-                          <button onClick={() => deleteCoupon(c)}
-                            className="p-1.5 rounded-lg hover:bg-white/10 text-red-400 transition-colors" title="Delete">
-                            <Trash2 size={16} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-        <Pagination page={couponPage} setPage={setCouponPage} pageCount={pageCounts.coupons}
-          totalLabel={`${filteredCoupons.length} coupon(s)`} />
-      </div>
-    );
-  }
-
-  function ReportsView() {
-    const totalSales = kpis.revenue;
-    const avgOrderValue = kpis.totalOrders > 0 ? totalSales / kpis.totalOrders : 0;
-    const totalCustomers = users.filter((u) => safeString(u?.role).toLowerCase() === 'customer').length;
-
-    return (
-      <div>
-        <h2 className="text-2xl font-bold mb-6">Reports</h2>
-
-        {/* Sales Summary */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-          <KpiCard icon={IndianRupee} label="Total Sales" value={formatINR(totalSales)}
-            subtext="Lifetime revenue" colorClass="bg-emerald-500/15 text-emerald-400" />
-          <KpiCard icon={ShoppingBag} label="Total Orders" value={kpis.totalOrders}
-            subtext="All time orders" colorClass="bg-blue-500/15 text-blue-400" />
-          <KpiCard icon={TrendingUp} label="Avg Order Value" value={formatINR(avgOrderValue)}
-            subtext="Per order" colorClass="bg-purple-500/15 text-purple-400" />
-          <KpiCard icon={Users} label="Total Customers" value={totalCustomers}
-            subtext="Registered users" colorClass="bg-[#D4AF37]/15 text-[#D4AF37]" />
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-          {/* Monthly Sales Chart */}
-          <div className="lg:col-span-2 rounded-xl p-5 bg-[#1a1a1a] border border-white/5">
-            <h3 className="text-lg font-semibold mb-4">Monthly Sales</h3>
-            <div className="flex items-end gap-2 h-48">
-              {monthlyData.data.map((d, i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="w-full flex flex-col items-center">
-                    <span className="text-[10px] text-gray-500 mb-1">{formatCompactINR(d.revenue)}</span>
-                    <div className="w-full max-w-[32px] rounded-t-md bg-gradient-to-t from-[#D4AF37] to-[#D4AF37]/60 min-h-[4px]"
-                      style={{ height: `${Math.max(4, (d.revenue / monthlyData.maxRev) * 140)}px` }} />
-                  </div>
-                  <span className="text-[10px] text-gray-500">{d.month}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Activity Log */}
-          <div className="rounded-xl p-5 bg-[#1a1a1a] border border-white/5">
-            <h3 className="text-lg font-semibold mb-4">Recent Activity</h3>
-            {activityLog.length === 0 ? (
-              <p className="text-sm text-gray-500">No recent activity.</p>
-            ) : (
-              <div className="space-y-3">
-                {activityLog.map((a, i) => (
-                  <div key={i} className="flex items-start gap-3">
-                    <div className="w-2 h-2 rounded-full bg-[#D4AF37] mt-1.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm">{safeString(a?.text)}</p>
-                      <p className="text-xs text-gray-500">{safeDate(a?.date)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Top Products */}
-        <div className="rounded-xl p-5 bg-[#1a1a1a] border border-white/5">
-          <h3 className="text-lg font-semibold mb-4">Top Selling Products</h3>
-          {topProducts.length === 0 ? (
-            <p className="text-sm text-gray-500">No sales data yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/10 text-gray-400 text-left">
-                    <th className="pb-3 font-medium pr-4">Product</th>
-                    <th className="pb-3 font-medium pr-4">Price</th>
-                    <th className="pb-3 font-medium pr-4">Stock</th>
-                    <th className="pb-3 font-medium">Units Sold</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {topProducts.map((p) => (
-                    <tr key={p?.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                      <td className="py-3 pr-4 font-medium">{safeString(p?.name)}</td>
-                      <td className="py-3 pr-4 text-gray-400">{formatINR(p?.price)}</td>
-                      <td className="py-3 pr-4">
-                        <span className={safeNum(p?.stock) <= 5 ? 'text-red-400' : 'text-green-400'}>
-                          {safeNum(p?.stock)}
-                        </span>
-                      </td>
-                      <td className="py-3 font-medium text-[#D4AF37]">{safeNum(p?.sold)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  function SettingsView() {
-    return (
-      <div className="max-w-3xl">
-        <h2 className="text-2xl font-bold mb-6">Settings</h2>
-        <div className="space-y-6">
-          {/* General */}
-          <div className="rounded-xl p-6 bg-[#1a1a1a] border border-white/5">
-            <h3 className="text-lg font-semibold mb-4">General</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Store Name</label>
-                <input
-                  type="text"
-                  value={settingsForm?.storeName || ''}
-                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, storeName: e.target.value }))}
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-white outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Currency</label>
-                <input
-                  type="text"
-                  value="INR (₹)"
-                  disabled
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-gray-500 outline-none border border-white/[0.12] bg-white/[0.03] cursor-not-allowed"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">GST Rate (%)</label>
-                <input
-                  type="number"
-                  value={settingsForm?.gstRate || ''}
-                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, gstRate: e.target.value }))}
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-white outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Branding */}
-          <div className="rounded-xl p-6 bg-[#1a1a1a] border border-white/5">
-            <h3 className="text-lg font-semibold mb-4">Branding</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Logo URL</label>
-                <input
-                  type="text"
-                  value={settingsForm?.logoUrl || ''}
-                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, logoUrl: e.target.value }))}
-                  placeholder="https://..."
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Favicon URL</label>
-                <input
-                  type="text"
-                  value={settingsForm?.favicon || ''}
-                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, favicon: e.target.value }))}
-                  placeholder="https://..."
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Contact */}
-          <div className="rounded-xl p-6 bg-[#1a1a1a] border border-white/5">
-            <h3 className="text-lg font-semibold mb-4">Contact</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Email</label>
-                <input
-                  type="email"
-                  value={settingsForm?.contactEmail || ''}
-                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, contactEmail: e.target.value }))}
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-white outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Phone</label>
-                <input
-                  type="text"
-                  value={settingsForm?.contactPhone || ''}
-                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, contactPhone: e.target.value }))}
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-white outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm text-gray-400 mb-2">Address</label>
-                <textarea
-                  value={settingsForm?.address || ''}
-                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, address: e.target.value }))}
-                  rows={3}
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-white outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06] resize-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Payment */}
-          <div className="rounded-xl p-6 bg-[#1a1a1a] border border-white/5">
-            <h3 className="text-lg font-semibold mb-4">Payment</h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Razorpay Mode</label>
-                <select
-                  value={settingsForm?.razorpayMode || 'test'}
-                  onChange={(e) => setSettingsForm((prev) => ({ ...prev, razorpayMode: e.target.value }))}
-                  className="w-full px-4 py-2.5 rounded-lg text-sm border border-white/[0.12] bg-white/[0.06] text-white outline-none focus:border-[#D4AF37]/50"
-                >
-                  <option value="test">Test</option>
-                  <option value="live">Live</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-3 pt-7">
-                <button
-                  onClick={() => setSettingsForm((prev) => ({ ...prev, codEnabled: !prev?.codEnabled }))}
-                  className={`relative w-12 h-6 rounded-full transition-colors ${settingsForm?.codEnabled ? 'bg-[#D4AF37]' : 'bg-gray-600'}`}
-                >
-                  <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${settingsForm?.codEnabled ? 'translate-x-6' : 'translate-x-0.5'}`} />
-                </button>
-                <span className="text-sm">Cash on Delivery (COD)</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Shipping */}
-          <div className="rounded-xl p-6 bg-[#1a1a1a] border border-white/5">
-            <h3 className="text-lg font-semibold mb-4">Shipping</h3>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Free Shipping Threshold (₹)</label>
-              <input
-                type="number"
-                value={settingsForm?.freeShippingThreshold || ''}
-                onChange={(e) => setSettingsForm((prev) => ({ ...prev, freeShippingThreshold: e.target.value }))}
-                className="w-full sm:w-64 px-4 py-2.5 rounded-lg text-sm text-white outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-          </div>
-
-          {/* Save */}
-          <div className="pt-2">
-            <button
-              onClick={saveSettings}
-              className="px-8 py-2.5 rounded-lg bg-[#D4AF37] text-black text-sm font-semibold hover:bg-[#C4A030] transition-colors"
-            >
-              Save Settings
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ═════════════════════════════════════════════════════════
-  // MODALS
-  // ═════════════════════════════════════════════════════════
-
-  function ProductModal() {
-    if (!productModalOpen) return null;
-    const isEdit = !!editingProduct;
-
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
-        <div className="w-full max-w-2xl max-h-[85vh] rounded-xl p-6 border border-white/10 bg-[#1a1a1a] overflow-y-auto">
-          <div className="flex items-center justify-between mb-5">
-            <h3 className="text-lg font-semibold">{isEdit ? 'Edit Product' : 'Add Product'}</h3>
-            <button onClick={closeProductModal} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors">
-              <X size={20} />
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="sm:col-span-2">
-              <label className="block text-sm text-gray-400 mb-2">Product Name *</label>
-              <input
-                type="text"
-                value={productForm?.name || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Product name"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Slug</label>
-              <input
-                type="text"
-                value={productForm?.slug || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, slug: e.target.value }))}
-                placeholder="product-slug"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">SKU</label>
-              <input
-                type="text"
-                value={productForm?.sku || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, sku: e.target.value }))}
-                placeholder="SKU-001"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm text-gray-400 mb-2">Description</label>
-              <textarea
-                value={productForm?.description || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, description: e.target.value }))}
-                placeholder="Full description"
-                rows={3}
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06] resize-none"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm text-gray-400 mb-2">Short Description</label>
-              <input
-                type="text"
-                value={productForm?.short_description || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, short_description: e.target.value }))}
-                placeholder="Brief product summary"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Price (₹) *</label>
-              <input
-                type="number"
-                value={productForm?.price || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, price: e.target.value }))}
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Compare Price (₹)</label>
-              <input
-                type="number"
-                value={productForm?.compare_price || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, compare_price: e.target.value }))}
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Cost Price (₹)</label>
-              <input
-                type="number"
-                value={productForm?.cost_price || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, cost_price: e.target.value }))}
-                placeholder="0.00"
-                min="0"
-                step="0.01"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Stock *</label>
-              <input
-                type="number"
-                value={productForm?.stock || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, stock: e.target.value }))}
-                placeholder="0"
-                min="0"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Category</label>
-              <input
-                type="text"
-                value={productForm?.category || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, category: e.target.value }))}
-                placeholder="Category"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Brand</label>
-              <input
-                type="text"
-                value={productForm?.brand || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, brand: e.target.value }))}
-                placeholder="Brand"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Status</label>
-              <select
-                value={productForm?.status || 'active'}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, status: e.target.value }))}
-                className="w-full px-4 py-2.5 rounded-lg text-sm border border-white/[0.12] bg-white/[0.06] text-white outline-none focus:border-[#D4AF37]/50"
-              >
-                <option value="active">Active</option>
-                <option value="draft">Draft</option>
-                <option value="archived">Archived</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Tags (comma separated)</label>
-              <input
-                type="text"
-                value={productForm?.tags || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, tags: e.target.value }))}
-                placeholder="tag1, tag2, tag3"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm text-gray-400 mb-2">SEO Title</label>
-              <input
-                type="text"
-                value={productForm?.seo_title || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, seo_title: e.target.value }))}
-                placeholder="SEO title"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div className="sm:col-span-2">
-              <label className="block text-sm text-gray-400 mb-2">SEO Description</label>
-              <textarea
-                value={productForm?.seo_description || ''}
-                onChange={(e) => setProductForm((prev) => ({ ...prev, seo_description: e.target.value }))}
-                placeholder="Meta description for SEO"
-                rows={2}
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06] resize-none"
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setProductForm((prev) => ({ ...prev, is_active: !prev?.is_active }))}
-                className={`relative w-12 h-6 rounded-full transition-colors ${productForm?.is_active !== false ? 'bg-[#D4AF37]' : 'bg-gray-600'}`}
-              >
-                <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${productForm?.is_active !== false ? 'translate-x-6' : 'translate-x-0.5'}`} />
-              </button>
-              <span className="text-sm">Active</span>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setProductForm((prev) => ({ ...prev, is_featured: !prev?.is_featured }))}
-                className={`relative w-12 h-6 rounded-full transition-colors ${productForm?.is_featured ? 'bg-[#D4AF37]' : 'bg-gray-600'}`}
-              >
-                <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${productForm?.is_featured ? 'translate-x-6' : 'translate-x-0.5'}`} />
-              </button>
-              <span className="text-sm">Featured</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 mt-6">
-            <button
-              onClick={closeProductModal}
-              className="flex-1 px-4 py-2.5 rounded-lg text-sm border border-white/10 hover:bg-white/5 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={saveProduct}
-              className="flex-1 px-4 py-2.5 rounded-lg text-sm bg-[#D4AF37] text-black font-semibold hover:bg-[#C4A030] transition-colors"
-            >
-              {isEdit ? 'Save Changes' : 'Add Product'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function OrderDetailModal() {
-    if (!orderDetailOpen || !viewingOrder) return null;
-    const o = viewingOrder;
-    const items = (o?.items || o?.orderItems || []);
-
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
-        <div className="w-full max-w-2xl max-h-[80vh] rounded-xl p-6 border border-white/10 bg-[#1a1a1a] overflow-y-auto">
-          <div className="flex items-center justify-between mb-5">
-            <h3 className="text-lg font-semibold">Order #{String(o?.id).slice(-6)}</h3>
-            <button onClick={() => { setOrderDetailOpen(false); setViewingOrder(null); }}
-              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors">
-              <X size={20} />
-            </button>
-          </div>
-
-          {/* Status + Update */}
-          <div className="flex items-center gap-4 mb-5 p-3 rounded-lg bg-white/[0.04]">
-            <span className="text-sm text-gray-400">Status:</span>
-            <OrderStatusBadge status={o?.status} />
-            <div className="flex items-center gap-2 ml-auto">
-              <span className="text-sm text-gray-400">Update:</span>
-              <select
-                value={safeString(o?.status).toLowerCase()}
-                onChange={(e) => updateOrderStatus(o?.id, e.target.value)}
-                className="px-3 py-1.5 rounded-lg text-sm border border-white/[0.12] bg-white/[0.06] text-white outline-none focus:border-[#D4AF37]/50"
-              >
-                <option value="pending">Pending</option>
-                <option value="processing">Processing</option>
-                <option value="shipped">Shipped</option>
-                <option value="delivered">Delivered</option>
-                <option value="cancelled">Cancelled</option>
-                <option value="refunded">Refunded</option>
-              </select>
-            </div>
-          </div>
-
-          {/* Customer */}
-          <div className="mb-5">
-            <h4 className="text-sm font-semibold text-gray-400 mb-2">Customer</h4>
-            <p className="text-sm">{safeString(o?.customerName || o?.customer?.name) || 'Guest'}</p>
-            <p className="text-sm text-gray-400">{safeString(o?.customerEmail || o?.customer?.email) || '-'}</p>
-            <p className="text-sm text-gray-400">{safeString(o?.customerPhone || o?.customer?.phone) || '-'}</p>
-          </div>
-
-          {/* Items */}
-          <div className="mb-5">
-            <h4 className="text-sm font-semibold text-gray-400 mb-2">Items</h4>
-            <div className="space-y-2">
-              {Array.isArray(items) && items.length > 0 ? items.map((item, i) => (
-                <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.04]">
-                  <div>
-                    <p className="text-sm font-medium">{safeString(item?.name || item?.productName)}</p>
-                    <p className="text-xs text-gray-500">Qty: {safeNum(item?.quantity)}</p>
-                  </div>
-                  <span className="text-sm">{formatINR(item?.price)}</span>
-                </div>
-              )) : <p className="text-sm text-gray-500">No items</p>}
-            </div>
-          </div>
-
-          {/* Totals */}
-          <div className="border-t border-white/10 pt-4 space-y-1">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Subtotal</span>
-              <span>{formatINR(o?.subtotal)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Shipping</span>
-              <span>{formatINR(o?.shipping)}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-400">Tax (GST)</span>
-              <span>{formatINR(o?.tax)}</span>
-            </div>
-            <div className="flex justify-between text-base font-semibold pt-2 border-t border-white/10">
-              <span>Grand Total</span>
-              <span className="text-[#D4AF37]">{formatINR(o?.grandTotal)}</span>
-            </div>
-          </div>
-
-          {/* Shipping Address */}
-          {o?.shippingAddress && (
-            <div className="mt-5 pt-4 border-t border-white/10">
-              <h4 className="text-sm font-semibold text-gray-400 mb-2">Shipping Address</h4>
-              <p className="text-sm text-gray-300">{safeString(o?.shippingAddress)}</p>
-            </div>
-          )}
-
-          {/* Timeline */}
-          <div className="mt-5 pt-4 border-t border-white/10">
-            <h4 className="text-sm font-semibold text-gray-400 mb-2">Timeline</h4>
-            <div className="space-y-2">
-              {o?.createdAt && (
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-green-500" />
-                  <span className="text-sm">Order placed - {safeDate(o?.createdAt)}</span>
-                </div>
-              )}
-              {o?.updatedAt && o?.updatedAt !== o?.createdAt && (
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-blue-500" />
-                  <span className="text-sm">Last updated - {safeDate(o?.updatedAt)}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  function CouponModal() {
-    if (!couponModalOpen) return null;
-    const isEdit = !!editingCoupon;
-
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
-        <div className="w-full max-w-md rounded-xl p-6 border border-white/10 bg-[#1a1a1a]">
-          <div className="flex items-center justify-between mb-5">
-            <h3 className="text-lg font-semibold">{isEdit ? 'Edit Coupon' : 'Add Coupon'}</h3>
-            <button onClick={closeCouponModal} className="p-1.5 rounded-lg hover:bg-white/10 transition-colors">
-              <X size={20} />
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Coupon Code *</label>
-              <input
-                type="text"
-                value={couponForm?.code || ''}
-                onChange={(e) => setCouponForm((prev) => ({ ...prev, code: e.target.value.toUpperCase() }))}
-                placeholder="SAVE20"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">Type</label>
-              <select
-                value={couponForm?.type || 'percentage'}
-                onChange={(e) => setCouponForm((prev) => ({ ...prev, type: e.target.value }))}
-                className="w-full px-4 py-2.5 rounded-lg text-sm border border-white/[0.12] bg-white/[0.06] text-white outline-none focus:border-[#D4AF37]/50"
-              >
-                <option value="percentage">Percentage (%)</option>
-                <option value="flat">Flat (₹)</option>
-                <option value="free_shipping">Free Shipping</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm text-gray-400 mb-2">
-                Value {safeString(couponForm?.type) === 'percentage' ? '(%)' : safeString(couponForm?.type) === 'flat' ? '(₹)' : ''}
-              </label>
-              <input
-                type="number"
-                value={couponForm?.value || ''}
-                onChange={(e) => setCouponForm((prev) => ({ ...prev, value: e.target.value }))}
-                placeholder="0"
-                min="0"
-                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Min Order (₹)</label>
-                <input
-                  type="number"
-                  value={couponForm?.min_order || ''}
-                  onChange={(e) => setCouponForm((prev) => ({ ...prev, min_order: e.target.value }))}
-                  placeholder="0"
-                  min="0"
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Max Discount (₹)</label>
-                <input
-                  type="number"
-                  value={couponForm?.max_discount || ''}
-                  onChange={(e) => setCouponForm((prev) => ({ ...prev, max_discount: e.target.value }))}
-                  placeholder="0"
-                  min="0"
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Usage Limit</label>
-                <input
-                  type="number"
-                  value={couponForm?.usage_limit || ''}
-                  onChange={(e) => setCouponForm((prev) => ({ ...prev, usage_limit: e.target.value }))}
-                  placeholder="Unlimited"
-                  min="0"
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-400 mb-2">Expiry Date</label>
-                <input
-                  type="date"
-                  value={couponForm?.expiry_date || ''}
-                  onChange={(e) => setCouponForm((prev) => ({ ...prev, expiry_date: e.target.value }))}
-                  className="w-full px-4 py-2.5 rounded-lg text-sm text-white outline-none border border-white/[0.12] focus:border-[#D4AF37]/50 bg-white/[0.06]"
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setCouponForm((prev) => ({ ...prev, auto_apply: !prev?.auto_apply }))}
-                className={`relative w-12 h-6 rounded-full transition-colors ${couponForm?.auto_apply ? 'bg-[#D4AF37]' : 'bg-gray-600'}`}
-              >
-                <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${couponForm?.auto_apply ? 'translate-x-6' : 'translate-x-0.5'}`} />
-              </button>
-              <span className="text-sm">Auto Apply</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-3 mt-6">
-            <button
-              onClick={closeCouponModal}
-              className="flex-1 px-4 py-2.5 rounded-lg text-sm border border-white/10 hover:bg-white/5 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={saveCoupon}
-              className="flex-1 px-4 py-2.5 rounded-lg text-sm bg-[#D4AF37] text-black font-semibold hover:bg-[#C4A030] transition-colors"
-            >
-              {isEdit ? 'Save Changes' : 'Add Coupon'}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ═════════════════════════════════════════════════════════
-  // RENDER
-  // ═════════════════════════════════════════════════════════
+  useEffect(() => {
+    try { setProducts(getProducts()); } catch (e) { console.error(e); }
+  }, [refreshKey]);
+
+  useEffect(() => {
+    try { setOrders(getOrders()); } catch (e) { console.error(e); }
+  }, [refreshKey]);
+
+  useEffect(() => {
+    try { setUsers(getUsers()); } catch (e) { console.error(e); }
+  }, [refreshKey]);
+
+  const navItems = [
+    { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { key: 'orders', label: 'Orders', icon: ShoppingBag },
+    { key: 'products', label: 'Products', icon: Package },
+    { key: 'users', label: 'Users', icon: Users },
+    { key: 'leads', label: 'Leads', icon: Phone },
+    { key: 'coupons', label: 'Coupons', icon: Tag },
+    { key: 'reports', label: 'Reports', icon: BarChart3 },
+    { key: 'settings', label: 'Settings', icon: Settings },
+  ];
+
+  const sectionTitles = { dashboard: 'Dashboard', orders: 'Orders', products: 'Products', users: 'Users', leads: 'Leads', coupons: 'Coupons', reports: 'Reports', settings: 'Settings' };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] text-white">
-      {/* Read-only banner for non-admins */}
-      {!isAdmin && (
-        <div className="fixed top-16 left-0 right-0 z-30 bg-yellow-600/20 border-b border-yellow-600/40 px-4 py-2 text-center text-sm text-yellow-400">
-          Read-only mode. Login as admin to make changes.
-        </div>
-      )}
-
-      {/* Top Bar */}
-      <header className="fixed top-0 left-0 right-0 h-16 bg-[#0A0A0A] border-b border-white/10 flex items-center justify-between px-4 z-40">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
-            className="lg:hidden p-2 rounded-lg hover:bg-white/10 transition-colors"
-          >
-            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-[#D4AF37] flex items-center justify-center">
-              <TrendingUp size={18} className="text-black" />
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-lg font-bold tracking-tight">SWORD</span>
-              <span className="text-xs px-2 py-0.5 rounded-md bg-white/10 text-gray-400">Admin</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3">
-          <span className="hidden sm:inline text-sm text-gray-400">
-            {safeString(user?.name) || 'Admin'}
-          </span>
-          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs font-medium overflow-hidden">
-            {user?.avatar ? (
-              <img src={user.avatar} alt="" className="w-full h-full object-cover" />
-            ) : (
-              getInitials(user?.name || user?.email)
-            )}
-          </div>
-          <button
-            onClick={handleLogout}
-            className="p-2 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
-            title="Logout"
-          >
-            <LogOut size={18} />
-          </button>
-        </div>
-      </header>
-
-      {/* Sidebar Overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 bg-black/50 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />
-      )}
-
+    <div className="min-h-screen bg-[#0A0A0A] text-white flex">
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && <div className="fixed inset-0 bg-black/70 z-40 lg:hidden" onClick={() => setSidebarOpen(false)} />}
       {/* Sidebar */}
-      <aside className={`fixed top-16 left-0 bottom-0 w-64 bg-[#111] border-r border-white/10 z-30 transform transition-transform duration-200 lg:translate-x-0 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-        <nav className="p-3 space-y-1">
-          {NAV_ITEMS.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeView === item.key;
-            return (
-              <button
-                key={item.key}
-                onClick={() => { setActiveView(item.key); setSidebarOpen(false); }}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${isActive
-                    ? 'bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/20'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                  }`}
-              >
-                <Icon size={18} />
-                {item.label}
-              </button>
-            );
-          })}
+      <aside className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-[#111] border-r border-white/10 flex flex-col transform transition-transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:transform-none lg:translate-x-0`}>
+        <div className="p-4 border-b border-white/10 flex items-center justify-between">
+          <div><span className="text-[#D4AF37] font-bold text-lg">SWORD</span><span className="text-gray-400 ml-2">Admin</span></div>
+          <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-gray-400"><X size={20} /></button>
+        </div>
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
+          {navItems.map(item => (
+            <button key={item.key} onClick={() => { setSection(item.key); setSidebarOpen(false); }} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm transition-colors ${section === item.key ? 'bg-[#D4AF37]/10 text-[#D4AF37] border border-[#D4AF37]/20' : 'text-gray-300 hover:bg-white/5 hover:text-white border border-transparent'}`}>
+              <item.icon size={18} /> {item.label}
+            </button>
+          ))}
         </nav>
-
-        {/* Sidebar Footer */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-white/10">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs font-medium overflow-hidden">
-              {user?.avatar ? (
-                <img src={user.avatar} alt="" className="w-full h-full object-cover" />
-              ) : (
-                getInitials(user?.name || user?.email)
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium truncate">{safeString(user?.name) || 'Admin'}</p>
-              <p className="text-xs text-gray-500 truncate">{safeString(user?.email) || 'admin@sword.com'}</p>
-            </div>
+        <div className="p-4 border-t border-white/10">
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-8 h-8 rounded-full bg-[#D4AF37]/20 flex items-center justify-center text-[#D4AF37] text-xs font-bold">{(user?.name || 'A').charAt(0).toUpperCase()}</div>
+            <div className="flex-1 min-w-0"><p className="text-sm text-white truncate">{user?.name || 'Admin'}</p><p className="text-xs text-gray-400 truncate">{user?.email || ''}</p></div>
           </div>
+          <button onClick={() => { logout(); navigate('/'); }} className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded transition-colors"><LogOut size={16} /> Logout</button>
         </div>
       </aside>
-
-      {/* Main Content */}
-      <main className={`pt-16 min-h-screen transition-all lg:ml-64 ${!isAdmin ? 'mt-8' : ''}`}>
-        <div className="p-4 sm:p-6 lg:p-8">
-          {activeView === 'dashboard' && <DashboardView />}
-          {activeView === 'orders' && <OrdersView />}
-          {activeView === 'products' && <ProductsView />}
-          {activeView === 'users' && <UsersView />}
-          {activeView === 'leads' && <LeadsView />}
-          {activeView === 'coupons' && <CouponsView />}
-          {activeView === 'reports' && <ReportsView />}
-          {activeView === 'settings' && <SettingsView />}
+      {/* Main content */}
+      <main className="flex-1 overflow-y-auto min-w-0">
+        <header className="sticky top-0 z-10 bg-[#0A0A0A]/95 backdrop-blur border-b border-white/10 px-4 lg:px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-gray-400 hover:text-white p-1"><Menu size={20} /></button>
+            <h1 className="text-lg font-bold text-white">{sectionTitles[section] || 'Admin'}</h1>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-gray-400 text-sm hidden sm:block">{new Date().toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'short', day: 'numeric' })}</span>
+          </div>
+        </header>
+        <div className="p-4 lg:p-6">
+          {section === 'dashboard' && <DashboardPage orders={orders} products={products} users={users} leads={[]} onNavigate={setSection} />}
+          {section === 'orders' && <OrdersPage orders={orders} refresh={refresh} />}
+          {section === 'products' && <ProductsPage products={products} setProducts={setProducts} refresh={refresh} />}
+          {section === 'users' && <UsersPage users={users} orders={orders} />}
+          {section === 'leads' && <LeadsPage />}
+          {section === 'coupons' && <CouponsPage />}
+          {section === 'reports' && <ReportsPage orders={orders} products={products} users={users} />}
+          {section === 'settings' && <SettingsPage />}
         </div>
       </main>
-
-      {/* Modals */}
-      <ProductModal />
-      <OrderDetailModal />
-      <CouponModal />
     </div>
   );
 }
