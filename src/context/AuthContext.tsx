@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import type { ReactNode } from 'react';
 
 export interface User {
@@ -22,6 +22,8 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+const AUTH_STORAGE_KEY = 'sword_auth_user';
+
 // Admin credentials
 const ADMIN_USERNAME = 'ohmnam';
 const ADMIN_PASSWORD = '9769610205';
@@ -35,10 +37,38 @@ const ADMIN_USER: User = {
   avatar: 'https://ui-avatars.com/api/?name=Priyank+Joshi&background=FFD700&color=000&size=128',
 };
 
+function loadStoredUser(): User | null {
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as User;
+  } catch { return null; }
+}
+
+function saveStoredUser(user: User | null): void {
+  try {
+    if (user) localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+    else localStorage.removeItem(AUTH_STORAGE_KEY);
+  } catch { /* noop */ }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUserState] = useState<User | null>(loadStoredUser);
   const isAuthenticated = user !== null;
   const isAdmin = user?.role === 'admin';
+
+  // Persist user to localStorage on every change
+  const setUser = useCallback((newUser: User | null) => {
+    setUserState(newUser);
+    saveStoredUser(newUser);
+  }, []);
+
+  useEffect(() => {
+    // Ensure admin user always has correct credentials
+    if (user?.role === 'admin') {
+      saveStoredUser(user);
+    }
+  }, [user]);
 
   const login = useCallback((email: string, password: string) => {
     const trimmedInput = email.trim();
