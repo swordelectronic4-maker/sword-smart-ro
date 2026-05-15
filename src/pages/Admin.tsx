@@ -1,17 +1,24 @@
 // @ts-nocheck
+/**
+ * SWORD Admin Dashboard — Lightweight, robust, fully functional
+ * Handles data shape mismatches from seeded localStorage data
+ */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import {
   LayoutDashboard, ShoppingBag, Users, Package, Settings,
   LogOut, Search, IndianRupee, TrendingUp, TrendingDown,
-  Eye, Pencil, Trash2, Plus, X, ChevronLeft, Menu, Phone, Mail, MapPin
+  Pencil, Trash2, Plus, X, Menu, Phone
 } from 'lucide-react';
-import { getProducts, getOrders, getUsers, getInterestedCustomers, saveProducts, type LiveProduct, type LiveOrder, type LiveUser } from '@/services/dataStore';
 
-const INR = (n: number) => `\u20B9${n?.toLocaleString('en-IN') || '0'}`;
+// ─── Safe helpers ─────────────────────────────────────────
+const INR = (n) => {
+  const num = Number(n) || 0;
+  return `\u20B9${num.toLocaleString('en-IN')}`;
+};
 
-const STATUS_COLOR: Record<string, string> = {
+const STATUS_STYLE = {
   delivered: 'bg-green-500/20 text-green-400',
   shipped: 'bg-blue-500/20 text-blue-400',
   processing: 'bg-yellow-500/20 text-yellow-400',
@@ -24,6 +31,71 @@ const STATUS_COLOR: Record<string, string> = {
   converted: 'bg-green-500/20 text-green-400',
 };
 
+const getStatusStyle = (s) => STATUS_STYLE[s] || STATUS_STYLE.pending;
+
+// ─── Safe data loaders (normalize Admin→Live shapes) ─────
+function loadProducts() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('sword_products') || '[]');
+    return Array.isArray(raw) ? raw : [];
+  } catch { return []; }
+}
+
+function loadOrders() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('sword_orders') || '[]');
+    if (!Array.isArray(raw)) return [];
+    return raw.map(o => ({
+      id: o?.id || '',
+      customer: o?.customer || 'Unknown',
+      customerName: o?.customerName || o?.customer,
+      email: o?.email || '',
+      phone: o?.phone || '',
+      items: (o?.items || []).map(it => ({
+        productId: it?.productId || '',
+        productName: it?.productName || it?.name || 'Product',
+        image: it?.image || '/assets/product-hero.png',
+        price: Number(it?.price) || 0,
+        quantity: Number(it?.quantity || it?.qty) || 1,
+      })),
+      status: o?.status || 'pending',
+      paymentMethod: o?.paymentMethod || 'UPI',
+      grandTotal: Number(o?.grandTotal || o?.grand_total || o?.subtotal) || 0,
+      createdAt: o?.createdAt || o?.placedAt || new Date().toISOString(),
+      trackingNumber: o?.trackingNumber || o?.trackingId || '',
+      carrier: o?.carrier || '',
+    }));
+  } catch { return []; }
+}
+
+function loadUsers() {
+  try {
+    const raw = JSON.parse(localStorage.getItem('sword_users') || '[]');
+    if (!Array.isArray(raw)) return [];
+    return raw.map(u => ({
+      id: u?.id || '',
+      name: u?.name || 'Unknown',
+      email: u?.email || '',
+      phone: u?.phone || '',
+      role: u?.role || 'customer',
+      status: u?.status || 'active',
+      joinDate: u?.joinDate || u?.joined || new Date().toISOString(),
+      avatar: u?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u?.name || 'User')}&background=1a365d&color=fff`,
+    }));
+  } catch { return []; }
+}
+
+function loadLeads() {
+  try {
+    return JSON.parse(localStorage.getItem('sword_interested_customers') || '[]');
+  } catch { return []; }
+}
+
+function saveProducts(products) {
+  localStorage.setItem('sword_products', JSON.stringify(products));
+}
+
+// ─── Navigation ───────────────────────────────────────────
 const NAV = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'orders', label: 'Orders', icon: ShoppingBag },
@@ -33,29 +105,27 @@ const NAV = [
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 
-/* ===== KPI CARDS ===== */
-function KPICards({ orders, products }: { orders: LiveOrder[]; products: LiveProduct[] }) {
-  const totalRevenue = orders.reduce((s, o) => s + (o.grandTotal || 0), 0);
-  const totalOrders = orders.length;
-  const totalProducts = products.length;
-  const lowStock = products.filter(p => (p.stock || 0) < 10).length;
-  const delivered = orders.filter(o => o.status === 'delivered').length;
+// ─── KPI Cards ────────────────────────────────────────────
+function KPICards({ orders, products }) {
+  const revenue = orders.reduce((s, o) => s + (Number(o?.grandTotal) || 0), 0);
+  const delivered = orders.filter(o => o?.status === 'delivered').length;
+  const lowStock = products.filter(p => (Number(p?.stock) || 0) < 10).length;
 
   const cards = [
-    { label: 'Total Revenue', value: INR(totalRevenue), icon: IndianRupee, color: 'text-[#D4AF37]' },
-    { label: 'Total Orders', value: totalOrders, icon: ShoppingBag, color: 'text-[#00B4D8]' },
-    { label: 'Products', value: totalProducts, icon: Package, color: 'text-[#2EC4B6]' },
-    { label: 'Low Stock', value: lowStock, icon: TrendingDown, color: lowStock > 0 ? 'text-[#E63946]' : 'text-[#2EC4B6]' },
-    { label: 'Delivered', value: delivered, icon: TrendingUp, color: 'text-[#2EC4B6]' },
-    { label: 'Pending', value: totalOrders - delivered, icon: TrendingDown, color: 'text-[#E8A838]' },
+    { label: 'Revenue', value: INR(revenue), icon: IndianRupee, col: 'text-[#D4AF37]' },
+    { label: 'Orders', value: orders.length, icon: ShoppingBag, col: 'text-[#00B4D8]' },
+    { label: 'Products', value: products.length, icon: Package, col: 'text-[#2EC4B6]' },
+    { label: 'Delivered', value: delivered, icon: TrendingUp, col: 'text-[#2EC4B6]' },
+    { label: 'Pending', value: orders.length - delivered, icon: TrendingDown, col: 'text-[#E8A838]' },
+    { label: 'Low Stock', value: lowStock, icon: TrendingDown, col: lowStock > 0 ? 'text-[#E63946]' : 'text-[#2EC4B6]' },
   ];
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
       {cards.map(c => (
-        <div key={c.label} className="glass-panel p-4">
-          <c.icon size={18} className={`${c.color} mb-2`} />
-          <p className="text-xl font-bold text-white font-['Playfair_Display']">{c.value}</p>
+        <div key={c.label} className="bg-white/[0.03] border border-white/10 p-4">
+          <c.icon size={18} className={`${c.col} mb-2`} />
+          <p className="text-xl font-bold text-white">{c.value}</p>
           <p className="text-xs text-[#A0A0A0] mt-1">{c.label}</p>
         </div>
       ))}
@@ -63,507 +133,357 @@ function KPICards({ orders, products }: { orders: LiveOrder[]; products: LivePro
   );
 }
 
-/* ===== ORDERS MODULE ===== */
-function OrdersModule({ orders }: { orders: LiveOrder[] }) {
+// ─── Orders Table ─────────────────────────────────────────
+function OrdersTable({ orders }) {
   const [filter, setFilter] = useState('');
-  const filtered = orders.filter(o =>
-    (o.customerName || o.customer || '').toLowerCase().includes(filter.toLowerCase()) ||
-    (o.id || '').toLowerCase().includes(filter.toLowerCase()) ||
-    (o.status || '').toLowerCase().includes(filter.toLowerCase())
+  const list = (orders || []).filter(o =>
+    !filter || (o?.customer || '').toLowerCase().includes(filter.toLowerCase()) || (o?.id || '').includes(filter)
   );
 
   return (
     <div>
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex items-center gap-4 mb-4">
         <div className="relative flex-1 max-w-xs">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
-          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search orders..." className="input-sword pl-9 text-sm" />
+          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search orders..."
+            className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
         </div>
-        <span className="text-[#A0A0A0] text-sm">{filtered.length} orders</span>
+        <span className="text-[#A0A0A0] text-sm">{list.length} orders</span>
       </div>
-
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-white/10 text-left">
-              {['Order ID', 'Customer', 'Items', 'Total', 'Status', 'Date'].map(h => (
-                <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>
-              ))}
-            </tr>
-          </thead>
+          <thead><tr className="border-b border-white/10 text-left">
+            {['ID', 'Customer', 'Items', 'Total', 'Status', 'Date'].map(h => <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>)}
+          </tr></thead>
           <tbody>
-            {filtered.map(o => (
-              <tr key={o.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-                <td className="py-3 px-3 text-white font-mono text-xs">{o.id?.slice(0, 12)}...</td>
-                <td className="py-3 px-3 text-white">{o.customerName || o.customer || 'N/A'}</td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{o.items?.length || 0} items</td>
-                <td className="py-3 px-3 text-[#D4AF37] font-medium">{INR(o.grandTotal || 0)}</td>
-                <td className="py-3 px-3">
-                  <span className={`px-2 py-1 text-xs rounded-full ${STATUS_COLOR[o.status || 'pending'] || STATUS_COLOR.pending}`}>
-                    {o.status || 'pending'}
-                  </span>
-                </td>
-                <td className="py-3 px-3 text-[#A0A0A0] text-xs">{o.createdAt ? new Date(o.createdAt).toLocaleDateString() : '-'}</td>
+            {list.map((o, i) => (
+              <tr key={o?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                <td className="py-3 px-3 text-white font-mono text-xs">{(o?.id || '').slice(0, 10)}</td>
+                <td className="py-3 px-3 text-white">{o?.customer || 'N/A'}</td>
+                <td className="py-3 px-3 text-[#A0A0A0]">{o?.items?.length || 0}</td>
+                <td className="py-3 px-3 text-[#D4AF37]">{INR(o?.grandTotal)}</td>
+                <td className="py-3 px-3"><span className={`px-2 py-1 text-xs rounded-full ${getStatusStyle(o?.status)}`}>{o?.status || '-'}</span></td>
+                <td className="py-3 px-3 text-[#A0A0A0] text-xs">{o?.createdAt ? new Date(o.createdAt).toLocaleDateString() : '-'}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {filtered.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No orders found</p>}
+        {list.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No orders</p>}
       </div>
     </div>
   );
 }
 
-/* ===== PRODUCTS MODULE ===== */
-function ProductsModule({ products, onChange }: { products: LiveProduct[]; onChange: () => void }) {
+// ─── Products Table ───────────────────────────────────────
+function ProductsTable({ products, onChange }) {
   const [filter, setFilter] = useState('');
-  const [editing, setEditing] = useState<LiveProduct | null>(null);
+  const [editing, setEditing] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
 
-  const filtered = products.filter(p =>
-    (p.name || '').toLowerCase().includes(filter.toLowerCase()) ||
-    (p.category || '').toLowerCase().includes(filter.toLowerCase())
-  );
+  const list = (products || []).filter(p => !filter || (p?.name || '').toLowerCase().includes(filter.toLowerCase()));
 
-  function handleSave(formData: Partial<LiveProduct>) {
-    const all = getProducts();
+  function handleDelete(id) {
+    if (confirm('Delete?')) { saveProducts(loadProducts().filter(p => p.id !== id)); onChange(); }
+  }
+  function handleSave(form) {
+    const all = loadProducts();
     if (editing) {
       const idx = all.findIndex(p => p.id === editing.id);
-      if (idx >= 0) {
-        all[idx] = { ...all[idx], ...formData };
-        saveProducts(all);
-      }
+      if (idx >= 0) all[idx] = { ...all[idx], ...form };
     } else {
-      const newProduct: LiveProduct = {
-        id: `p_${Date.now()}`,
-        name: formData.name || 'New Product',
-        price: Number(formData.price) || 0,
-        originalPrice: Number(formData.price) * 1.3 || 0,
-        category: formData.category || 'Uncategorized',
-        rating: 4.5,
-        reviews: 0,
-        image: '/assets/product-hero.png',
-        description: formData.description || '',
-        specs: {},
-        inStock: true,
-        stock: Number(formData.stock) || 0,
-        visible: true,
-        slug: (formData.name || 'product').toLowerCase().replace(/\s+/g, '-'),
-        sku: `SWORD-${Date.now()}`,
-        featured: false,
-      };
-      saveProducts([...all, newProduct]);
+      all.push({ id: `p_${Date.now()}`, name: form.name || 'New', price: Number(form.price) || 0, stock: Number(form.stock) || 0, category: form.category || 'General', rating: 4.5, reviews: 0, image: '/assets/product-hero.png', description: form.description || '', specs: {}, inStock: true, visible: true });
     }
-    setEditing(null);
-    setShowAdd(false);
-    onChange();
-  }
-
-  function handleDelete(id: string) {
-    if (confirm('Delete this product?')) {
-      saveProducts(getProducts().filter(p => p.id !== id));
-      onChange();
-    }
+    saveProducts(all); setEditing(null); setShowAdd(false); onChange();
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="relative flex-1 max-w-xs">
+      <div className="flex items-center justify-between mb-4">
+        <div className="relative max-w-xs">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
-          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search products..." className="input-sword pl-9 text-sm" />
+          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search products..."
+            className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
         </div>
-        <button onClick={() => setShowAdd(true)} className="btn-primary text-xs py-2 px-4 flex items-center gap-2">
-          <Plus size={14} /> Add Product
+        <button onClick={() => setShowAdd(true)} className="bg-[#D4AF37] text-black text-xs font-semibold px-4 py-2.5 flex items-center gap-2 hover:bg-[#E5C158] transition-colors">
+          <Plus size={14} /> Add
         </button>
       </div>
-
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-white/10 text-left">
-              {['Product', 'Category', 'Price', 'Stock', 'Status', 'Actions'].map(h => (
-                <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>
-              ))}
-            </tr>
-          </thead>
+          <thead><tr className="border-b border-white/10 text-left">
+            {['Product', 'Category', 'Price', 'Stock', 'Actions'].map(h => <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>)}
+          </tr></thead>
           <tbody>
-            {filtered.map(p => (
-              <tr key={p.id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
-                <td className="py-3 px-3">
-                  <div className="flex items-center gap-3">
-                    <img src={p.image} alt={p.name} className="w-10 h-10 object-contain bg-[#111] rounded" />
-                    <div>
-                      <p className="text-white text-sm">{p.name}</p>
-                      <p className="text-[#666] text-xs">{p.sku || p.id}</p>
-                    </div>
-                  </div>
+            {list.map((p, i) => (
+              <tr key={p?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                <td className="py-3 px-3 flex items-center gap-3">
+                  <img src={p?.image || '/assets/product-hero.png'} className="w-10 h-10 object-contain bg-[#111] rounded" alt="" />
+                  <span className="text-white">{p?.name || 'Unnamed'}</span>
                 </td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{p.category}</td>
-                <td className="py-3 px-3 text-[#D4AF37] font-medium">{INR(p.price)}</td>
-                <td className="py-3 px-3 text-white">{p.stock || 0}</td>
-                <td className="py-3 px-3">
-                  <span className={`px-2 py-1 text-xs rounded-full ${(p.stock || 0) > 0 ? STATUS_COLOR.active : STATUS_COLOR.inactive}`}>
-                    {(p.stock || 0) > 0 ? 'Active' : 'Out of Stock'}
-                  </span>
-                </td>
+                <td className="py-3 px-3 text-[#A0A0A0]">{p?.category || '-'}</td>
+                <td className="py-3 px-3 text-[#D4AF37]">{INR(p?.price)}</td>
+                <td className="py-3 px-3 text-white">{p?.stock ?? 0}</td>
                 <td className="py-3 px-3">
                   <div className="flex gap-2">
-                    <button onClick={() => setEditing(p)} className="p-1.5 hover:bg-white/10 rounded text-[#A0A0A0] hover:text-[#D4AF37] transition-colors"><Pencil size={14} /></button>
-                    <button onClick={() => handleDelete(p.id)} className="p-1.5 hover:bg-white/10 rounded text-[#A0A0A0] hover:text-red-400 transition-colors"><Trash2 size={14} /></button>
+                    <button onClick={() => setEditing(p)} className="p-1.5 text-[#A0A0A0] hover:text-[#D4AF37]"><Pencil size={14} /></button>
+                    <button onClick={() => handleDelete(p?.id)} className="p-1.5 text-[#A0A0A0] hover:text-red-400"><Trash2 size={14} /></button>
                   </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
-        {filtered.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No products found</p>}
+        {list.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No products</p>}
       </div>
 
-      {/* Edit/Add Modal */}
       {(editing || showAdd) && (
-        <ProductModal product={editing} onSave={handleSave} onClose={() => { setEditing(null); setShowAdd(false); }} />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => { setEditing(null); setShowAdd(false); }}>
+          <div className="bg-[#111] border border-white/10 p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between mb-4">
+              <h3 className="text-lg font-bold text-white">{editing ? 'Edit' : 'Add'} Product</h3>
+              <button onClick={() => { setEditing(null); setShowAdd(false); }} className="text-[#A0A0A0]"><X size={20} /></button>
+            </div>
+            <ProductForm product={editing} onSave={handleSave} />
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-/* ===== PRODUCT MODAL ===== */
-function ProductModal({ product, onSave, onClose }: { product: LiveProduct | null; onSave: (d: Partial<LiveProduct>) => void; onClose: () => void }) {
+function ProductForm({ product, onSave }) {
   const [name, setName] = useState(product?.name || '');
   const [price, setPrice] = useState(String(product?.price || ''));
   const [stock, setStock] = useState(String(product?.stock || ''));
   const [category, setCategory] = useState(product?.category || 'Water Purifiers');
   const [desc, setDesc] = useState(product?.description || '');
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={onClose}>
-      <div className="glass-panel w-full max-w-lg p-6" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-white font-['Playfair_Display']">{product ? 'Edit Product' : 'Add Product'}</h3>
-          <button onClick={onClose} className="text-[#A0A0A0] hover:text-white"><X size={20} /></button>
+    <div className="space-y-4">
+      {[
+        { label: 'Name', val: name, set: setName },
+        { label: 'Price', val: price, set: setPrice, num: true },
+        { label: 'Stock', val: stock, set: setStock, num: true },
+        { label: 'Category', val: category, set: setCategory },
+      ].map(f => (
+        <div key={f.label}>
+          <label className="text-xs text-[#A0A0A0] uppercase mb-1 block">{f.label}</label>
+          <input type={f.num ? 'number' : 'text'} value={f.val} onChange={e => f.set(e.target.value)}
+            className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
         </div>
-        <div className="space-y-4">
-          <div>
-            <label className="text-xs text-[#A0A0A0] uppercase tracking-wider mb-1 block">Name</label>
-            <input value={name} onChange={e => setName(e.target.value)} className="input-sword text-sm" placeholder="Product name" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-xs text-[#A0A0A0] uppercase tracking-wider mb-1 block">Price (INR)</label>
-              <input type="number" value={price} onChange={e => setPrice(e.target.value)} className="input-sword text-sm" placeholder="27999" />
-            </div>
-            <div>
-              <label className="text-xs text-[#A0A0A0] uppercase tracking-wider mb-1 block">Stock</label>
-              <input type="number" value={stock} onChange={e => setStock(e.target.value)} className="input-sword text-sm" placeholder="50" />
-            </div>
-          </div>
-          <div>
-            <label className="text-xs text-[#A0A0A0] uppercase tracking-wider mb-1 block">Category</label>
-            <input value={category} onChange={e => setCategory(e.target.value)} className="input-sword text-sm" placeholder="Category" />
-          </div>
-          <div>
-            <label className="text-xs text-[#A0A0A0] uppercase tracking-wider mb-1 block">Description</label>
-            <textarea value={desc} onChange={e => setDesc(e.target.value)} className="input-sword text-sm min-h-[80px]" placeholder="Product description..." />
-          </div>
-          <button onClick={() => onSave({ name, price: Number(price), stock: Number(stock), category, description: desc })}
-            className="btn-primary w-full text-sm py-3">
-            {product ? 'Update Product' : 'Add Product'}
-          </button>
-        </div>
+      ))}
+      <div>
+        <label className="text-xs text-[#A0A0A0] uppercase mb-1 block">Description</label>
+        <textarea value={desc} onChange={e => setDesc(e.target.value)}
+          className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] min-h-[60px] placeholder:text-white/30" />
       </div>
+      <button onClick={() => onSave({ name, price: Number(price), stock: Number(stock), category, description: desc })}
+        className="w-full bg-[#D4AF37] text-black text-sm font-semibold py-2.5 hover:bg-[#E5C158] transition-colors">
+        {product ? 'Update' : 'Add'} Product
+      </button>
     </div>
   );
 }
 
-/* ===== USERS MODULE ===== */
-function UsersModule({ users }: { users: LiveUser[] }) {
+// ─── Users Table ──────────────────────────────────────────
+function UsersTable({ users }) {
   const [filter, setFilter] = useState('');
-  const filtered = users.filter(u =>
-    (u.name || '').toLowerCase().includes(filter.toLowerCase()) ||
-    (u.email || '').toLowerCase().includes(filter.toLowerCase())
-  );
+  const list = (users || []).filter(u => !filter || (u?.name || '').toLowerCase().includes(filter.toLowerCase()));
 
   return (
     <div>
-      <div className="relative max-w-xs mb-6">
+      <div className="relative max-w-xs mb-4">
         <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
-        <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search users..." className="input-sword pl-9 text-sm" />
+        <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search users..."
+          className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
       </div>
-
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-white/10 text-left">
-              {['User', 'Email', 'Phone', 'Role', 'Status', 'Joined'].map(h => (
-                <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>
-              ))}
-            </tr>
-          </thead>
+          <thead><tr className="border-b border-white/10 text-left">
+            {['User', 'Email', 'Phone', 'Role', 'Status'].map(h => <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>)}
+          </tr></thead>
           <tbody>
-            {filtered.map(u => (
-              <tr key={u.id} className="border-b border-white/5 hover:bg-white/[0.02]">
+            {list.map((u, i) => (
+              <tr key={u?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
                 <td className="py-3 px-3 flex items-center gap-3">
-                  <img src={u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name)}&background=1a365d&color=fff`} className="w-8 h-8 rounded-full" alt="" />
-                  <span className="text-white">{u.name}</span>
+                  <img src={u?.avatar || ''} className="w-8 h-8 rounded-full bg-[#222]" alt="" />
+                  <span className="text-white">{u?.name || 'Unknown'}</span>
                 </td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{u.email}</td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{u.phone || '-'}</td>
-                <td className="py-3 px-3">
-                  <span className={`px-2 py-1 text-xs rounded-full ${u.role === 'admin' ? 'bg-[#D4AF37]/20 text-[#D4AF37]' : STATUS_COLOR.active}`}>
-                    {u.role}
-                  </span>
-                </td>
-                <td className="py-3 px-3">
-                  <span className={`px-2 py-1 text-xs rounded-full ${STATUS_COLOR[u.status || 'active'] || STATUS_COLOR.active}`}>
-                    {u.status || 'active'}
-                  </span>
-                </td>
-                <td className="py-3 px-3 text-[#A0A0A0] text-xs">{u.joinDate ? new Date(u.joinDate).toLocaleDateString() : '-'}</td>
+                <td className="py-3 px-3 text-[#A0A0A0]">{u?.email || '-'}</td>
+                <td className="py-3 px-3 text-[#A0A0A0]">{u?.phone || '-'}</td>
+                <td className="py-3 px-3"><span className={`px-2 py-1 text-xs rounded-full ${u?.role === 'admin' ? 'bg-[#D4AF37]/20 text-[#D4AF37]' : getStatusStyle('active')}`}>{u?.role || '-'}</span></td>
+                <td className="py-3 px-3"><span className={`px-2 py-1 text-xs rounded-full ${getStatusStyle(u?.status)}`}>{u?.status || '-'}</span></td>
               </tr>
             ))}
           </tbody>
         </table>
-        {filtered.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No users found</p>}
+        {list.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No users</p>}
       </div>
     </div>
   );
 }
 
-/* ===== LEADS MODULE ===== */
-function LeadsModule() {
+// ─── Leads Table ──────────────────────────────────────────
+function LeadsTable() {
   const [filter, setFilter] = useState('');
-  const leads = getInterestedCustomers();
-  const filtered = leads.filter((l: any) =>
-    (l.name || '').toLowerCase().includes(filter.toLowerCase()) ||
-    (l.email || '').toLowerCase().includes(filter.toLowerCase()) ||
-    (l.phone || '').includes(filter)
-  );
+  const leads = loadLeads();
+  const list = leads.filter((l) => !filter || (l?.name || '').toLowerCase().includes(filter.toLowerCase()));
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div className="relative max-w-xs">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
-          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search leads..." className="input-sword pl-9 text-sm" />
+          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search leads..."
+            className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
         </div>
-        <span className="text-[#A0A0A0] text-sm">{filtered.length} leads</span>
+        <span className="text-[#A0A0A0] text-sm">{list.length} leads</span>
       </div>
-
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-white/10 text-left">
-              {['Name', 'Email', 'Phone', 'Source', 'Status', 'Date'].map(h => (
-                <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>
-              ))}
-            </tr>
-          </thead>
+          <thead><tr className="border-b border-white/10 text-left">
+            {['Name', 'Email', 'Phone', 'Source', 'Status', 'Date'].map(h => <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>)}
+          </tr></thead>
           <tbody>
-            {filtered.map((l: any) => (
-              <tr key={l.id} className="border-b border-white/5 hover:bg-white/[0.02]">
-                <td className="py-3 px-3 text-white font-medium">{l.name}</td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{l.email}</td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{l.phone}</td>
-                <td className="py-3 px-3 text-[#A0A0A0] capitalize">{l.source || '-'}</td>
-                <td className="py-3 px-3">
-                  <span className={`px-2 py-1 text-xs rounded-full ${STATUS_COLOR[l.status || 'new'] || STATUS_COLOR.new}`}>
-                    {l.status || 'new'}
-                  </span>
-                </td>
-                <td className="py-3 px-3 text-[#A0A0A0] text-xs">{l.timestamp ? new Date(l.timestamp).toLocaleDateString() : '-'}</td>
+            {list.map((l, i) => (
+              <tr key={l?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
+                <td className="py-3 px-3 text-white font-medium">{l?.name || '-'}</td>
+                <td className="py-3 px-3 text-[#A0A0A0]">{l?.email || '-'}</td>
+                <td className="py-3 px-3 text-[#A0A0A0]">{l?.phone || '-'}</td>
+                <td className="py-3 px-3 text-[#A0A0A0] capitalize">{l?.source || '-'}</td>
+                <td className="py-3 px-3"><span className={`px-2 py-1 text-xs rounded-full ${getStatusStyle(l?.status)}`}>{l?.status || 'new'}</span></td>
+                <td className="py-3 px-3 text-[#A0A0A0] text-xs">{l?.timestamp ? new Date(l.timestamp).toLocaleDateString() : '-'}</td>
               </tr>
             ))}
           </tbody>
         </table>
-        {filtered.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No leads yet. Leads captured from chatbot will appear here.</p>}
+        {list.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No leads yet. Chatbot captures will appear here.</p>}
       </div>
     </div>
   );
 }
 
-/* ===== SETTINGS MODULE ===== */
-function SettingsModule() {
+// ─── Settings ─────────────────────────────────────────────
+function SettingsPage() {
   const [saved, setSaved] = useState(false);
-  const [form, setForm] = useState({
-    storeName: 'SWORD Smart Water',
-    supportPhone: '+91 95377 97597',
-    supportEmail: 'priyank.joshi@swordhome.com',
-    freeShipping: '20000',
-    razorpayKeyId: '',
-    razorpaySecret: '',
-    razorpayLive: false,
-    shiprocketToken: '',
-  });
-
-  function handleSave() {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
-
   return (
     <div className="max-w-xl">
-      <h3 className="text-lg font-bold text-white mb-6 font-['Playfair_Display']">Store Settings</h3>
+      <h3 className="text-lg font-bold text-white mb-6">Store Settings</h3>
       <div className="space-y-4">
-        {[
-          { label: 'Store Name', key: 'storeName' },
-          { label: 'Support Phone', key: 'supportPhone' },
-          { label: 'Support Email', key: 'supportEmail' },
-          { label: 'Free Shipping Threshold (INR)', key: 'freeShipping' },
-          { label: 'Razorpay Key ID', key: 'razorpayKeyId' },
-          { label: 'Razorpay Secret', key: 'razorpaySecret', type: 'password' },
-          { label: 'Shiprocket Token', key: 'shiprocketToken', type: 'password' },
-        ].map(field => (
-          <div key={field.key}>
-            <label className="text-xs text-[#A0A0A0] uppercase tracking-wider mb-1 block">{field.label}</label>
-            <input
-              type={field.type || 'text'}
-              value={form[field.key as keyof typeof form] as string}
-              onChange={e => setForm(f => ({ ...f, [field.key]: e.target.value }))}
-              className="input-sword text-sm"
-            />
+        {['Store Name', 'Support Phone', 'Support Email', 'Free Shipping Threshold'].map(label => (
+          <div key={label}>
+            <label className="text-xs text-[#A0A0A0] uppercase mb-1 block">{label}</label>
+            <input className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder={label} />
           </div>
         ))}
-        <label className="flex items-center gap-3 py-2">
-          <input type="checkbox" checked={form.razorpayLive} onChange={e => setForm(f => ({ ...f, razorpayLive: e.target.checked }))} className="accent-[#D4AF37]" />
-          <span className="text-sm text-[#A0A0A0]">Razorpay Live Mode</span>
-        </label>
-        <button onClick={handleSave} className="btn-primary text-sm py-3 px-8">
-          {saved ? 'Saved!' : 'Save Settings'}
+        <button onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2000); }}
+          className="bg-[#D4AF37] text-black text-sm font-semibold py-2.5 px-8 hover:bg-[#E5C158] transition-colors">
+          {saved ? 'Saved!' : 'Save'}
         </button>
       </div>
     </div>
   );
 }
 
-/* ===== MAIN ADMIN ===== */
+// ─── MAIN ADMIN ───────────────────────────────────────────
 export default function Admin() {
   const { user, isAdmin, logout } = useAuth();
   const navigate = useNavigate();
-  const [activeSection, setActiveSection] = useState('dashboard');
+  const [section, setSection] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const [tick, setTick] = useState(0);
 
-  // Data state
-  const [products, setProducts] = useState<LiveProduct[]>([]);
-  const [orders, setOrders] = useState<LiveOrder[]>([]);
-  const [users, setUsers] = useState<LiveUser[]>([]);
-
-  // Load data
-  useEffect(() => {
-    setProducts(getProducts());
-    setOrders(getOrders());
-    setUsers(getUsers());
-  }, [refreshKey]);
-
-  // Auth guard: redirect non-admin
+  // Auth guard
   useEffect(() => {
     if (!isAdmin) {
-      const timer = setTimeout(() => navigate('/account'), 500);
-      return () => clearTimeout(timer);
+      const t = setTimeout(() => navigate('/account'), 600);
+      return () => clearTimeout(t);
     }
   }, [isAdmin, navigate]);
 
-  // If not admin, show redirect message
   if (!isAdmin) {
     return (
       <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
         <div className="text-center">
           <div className="w-10 h-10 border-2 border-[#D4AF37] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-[#A0A0A0] text-sm">Checking admin access...</p>
-          <p className="text-[#666] text-xs mt-2">Redirecting to login</p>
+          <p className="text-[#A0A0A0] text-sm">Redirecting to login...</p>
         </div>
       </div>
     );
   }
 
-  function refresh() { setRefreshKey(k => k + 1); }
+  const refresh = () => setTick(t => t + 1);
+
+  // Load data fresh on each tick
+  const products = loadProducts();
+  const orders = loadOrders();
+  const users = loadUsers();
 
   const renderSection = () => {
-    switch (activeSection) {
-      case 'dashboard': return <><KPICards orders={orders} products={products} /><OrdersModule orders={orders} /></>;
-      case 'orders': return <OrdersModule orders={orders} />;
-      case 'products': return <ProductsModule products={products} onChange={refresh} />;
-      case 'users': return <UsersModule users={users} />;
-      case 'leads': return <LeadsModule />;
-      case 'settings': return <SettingsModule />;
+    switch (section) {
+      case 'dashboard': return <><KPICards orders={orders} products={products} /><OrdersTable orders={orders} /></>;
+      case 'orders': return <OrdersTable orders={orders} />;
+      case 'products': return <ProductsTable products={products} onChange={refresh} />;
+      case 'users': return <UsersTable users={users} />;
+      case 'leads': return <LeadsTable />;
+      case 'settings': return <SettingsPage />;
       default: return <KPICards orders={orders} products={products} />;
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#0A0A0A] pt-[72px]">
-      {/* Mobile sidebar toggle */}
-      <div className="lg:hidden fixed top-[72px] left-0 right-0 z-40 bg-[#0A0A0A]/95 backdrop-blur-md border-b border-white/10 px-4 py-2 flex items-center gap-3">
-        <button onClick={() => setSidebarOpen(!sidebarOpen)} className="p-2 hover:bg-white/10 rounded">
-          {sidebarOpen ? <X size={20} className="text-white" /> : <Menu size={20} className="text-white" />}
-        </button>
-        <span className="text-white font-['Playfair_Display'] text-lg">Admin</span>
+    <div className="min-h-screen bg-[#0A0A0A]">
+      {/* Top bar */}
+      <div className="fixed top-0 left-0 right-0 z-50 h-[72px] bg-[#0A0A0A]/95 backdrop-blur-md border-b border-white/10 px-4 lg:px-8 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="lg:hidden p-2 text-white hover:bg-white/10 rounded">
+            <Menu size={20} />
+          </button>
+          <span className="text-[#D4AF37] font-bold text-lg tracking-wider">SWORD</span>
+          <span className="text-white/30">|</span>
+          <span className="text-[#A0A0A0] text-sm">Admin</span>
+        </div>
+        <div className="flex items-center gap-4">
+          <span className="text-white text-sm hidden sm:inline">{user?.name}</span>
+          <button onClick={() => { logout(); navigate('/'); }} className="text-[#E63946] text-sm hover:bg-[#E63946]/10 px-3 py-1.5 rounded transition-colors">
+            <LogOut size={16} className="inline mr-1" />Exit
+          </button>
+        </div>
       </div>
 
-      <div className="flex">
+      <div className="flex pt-[72px]">
         {/* Sidebar */}
-        <aside className={`fixed lg:sticky top-[72px] lg:top-[72px] left-0 z-30 w-[260px] h-[calc(100vh-72px)] bg-[#0E0E0E] border-r border-white/10 overflow-y-auto transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
-          {/* Admin profile */}
+        <aside className={`fixed lg:sticky top-[72px] left-0 z-40 w-[240px] h-[calc(100vh-72px)] bg-[#0E0E0E] border-r border-white/10 overflow-y-auto transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
           <div className="p-4 border-b border-white/10">
             <div className="flex items-center gap-3">
-              <img src={user?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(user?.name || 'Admin')}&background=FFD700&color=000`} className="w-10 h-10 rounded-full" alt="" />
+              <img src={user?.avatar || ''} className="w-9 h-9 rounded-full bg-[#222]" alt="" />
               <div>
                 <p className="text-white text-sm font-medium">{user?.name}</p>
                 <p className="text-[#666] text-xs">{user?.email}</p>
               </div>
             </div>
           </div>
-
-          {/* Nav */}
           <nav className="p-3 space-y-1">
             {NAV.map(item => {
               const Icon = item.icon;
-              const isActive = activeSection === item.key;
+              const active = section === item.key;
               return (
-                <button
-                  key={item.key}
-                  onClick={() => { setActiveSection(item.key); setSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
-                    isActive
-                      ? 'bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/30'
-                      : 'text-[#A0A0A0] hover:text-white hover:bg-white/5'
-                  }`}
-                >
-                  <Icon size={18} />
-                  {item.label}
+                <button key={item.key} onClick={() => { setSection(item.key); setSidebarOpen(false); }}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${active ? 'bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/30' : 'text-[#A0A0A0] hover:text-white hover:bg-white/5'}`}>
+                  <Icon size={18} /> {item.label}
                 </button>
               );
             })}
           </nav>
-
-          {/* Logout */}
-          <div className="p-3 mt-auto border-t border-white/10">
-            <button
-              onClick={() => { logout(); navigate('/'); }}
-              className="w-full flex items-center gap-3 px-3 py-2.5 text-sm text-[#E63946] hover:bg-[#E63946]/10 rounded-lg transition-colors"
-            >
-              <LogOut size={18} />
-              Sign Out
-            </button>
-          </div>
         </aside>
 
-        {/* Overlay for mobile */}
-        {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-20 lg:hidden" onClick={() => setSidebarOpen(false)} />}
+        {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
 
-        {/* Main Content */}
+        {/* Main */}
         <main className="flex-1 p-4 lg:p-8 min-h-[calc(100vh-72px)] overflow-y-auto">
-          {/* Header */}
           <div className="flex items-center justify-between mb-8">
-            <h1 className="text-2xl lg:text-3xl font-bold text-white font-['Playfair_Display']">
-              {NAV.find(n => n.key === activeSection)?.label || 'Dashboard'}
-            </h1>
-            <div className="text-[#A0A0A0] text-sm">
-              {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-            </div>
+            <h1 className="text-2xl font-bold text-white">{NAV.find(n => n.key === section)?.label || 'Dashboard'}</h1>
+            <span className="text-[#A0A0A0] text-sm">{new Date().toLocaleDateString('en-IN')}</span>
           </div>
-
           {renderSection()}
         </main>
       </div>
