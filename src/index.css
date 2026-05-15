@@ -189,6 +189,24 @@
     transform: scale(0.98);
   }
 
+  .btn-sword {
+    background: linear-gradient(135deg, #D4AF37 0%, #E8D44D 50%, #AA8C2C 100%);
+    color: #0A0A0A;
+    font-weight: 600;
+    transition: all 0.3s var(--ease-smooth);
+    cursor: pointer;
+    border: none;
+  }
+
+  .btn-sword:hover {
+    transform: scale(1.02);
+    box-shadow: 0 0 20px rgba(212, 175, 55, 0.3);
+  }
+
+  .btn-sword:active {
+    transform: scale(0.98);
+  }
+
   .btn-secondary {
     background: transparent;
     border: 1px solid rgba(255, 255, 255, 0.3);
