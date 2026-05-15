@@ -1,102 +1,88 @@
 // @ts-nocheck
-/**
- * SWORD Admin Dashboard — Lightweight, robust, fully functional
- * Handles data shape mismatches from seeded localStorage data
- */
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '@/context/AuthContext';
+import { useState, useEffect, useMemo } from 'react';
 import {
-  LayoutDashboard, ShoppingBag, Users, Package, Settings,
-  LogOut, Search, IndianRupee, TrendingUp, TrendingDown,
-  Pencil, Trash2, Plus, X, Menu, Phone
+  LayoutDashboard,
+  ShoppingBag,
+  Package,
+  Users,
+  Phone,
+  Settings,
+  Search,
+  LogOut,
+  Menu,
+  X,
+  Pencil,
+  Trash2,
+  Plus,
+  ChevronLeft,
+  ChevronRight,
+  DollarSign,
+  TrendingUp,
+  AlertTriangle,
+  Clock,
+  CheckCircle,
+  Archive,
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 
-// ─── Safe helpers ─────────────────────────────────────────
-const INR = (n) => {
-  const num = Number(n) || 0;
-  return `\u20B9${num.toLocaleString('en-IN')}`;
-};
+// ─── Safe Helpers ───────────────────────────────────────────────
 
-const STATUS_STYLE = {
-  delivered: 'bg-green-500/20 text-green-400',
-  shipped: 'bg-blue-500/20 text-blue-400',
-  processing: 'bg-yellow-500/20 text-yellow-400',
-  cancelled: 'bg-red-500/20 text-red-400',
-  pending: 'bg-gray-500/20 text-gray-400',
-  active: 'bg-green-500/20 text-green-400',
-  inactive: 'bg-gray-500/20 text-gray-400',
-  new: 'bg-blue-500/20 text-blue-400',
-  contacted: 'bg-yellow-500/20 text-yellow-400',
-  converted: 'bg-green-500/20 text-green-400',
-};
-
-const getStatusStyle = (s) => STATUS_STYLE[s] || STATUS_STYLE.pending;
-
-// ─── Safe data loaders (normalize Admin→Live shapes) ─────
-function loadProducts() {
+function safeParse(str, fallback) {
   try {
-    const raw = JSON.parse(localStorage.getItem('sword_products') || '[]');
-    return Array.isArray(raw) ? raw : [];
-  } catch { return []; }
+    if (!str || str === 'undefined' || str === 'null') return fallback;
+    const parsed = JSON.parse(str);
+    return Array.isArray(parsed) ? parsed : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
-function loadOrders() {
+function safeNum(val) {
   try {
-    const raw = JSON.parse(localStorage.getItem('sword_orders') || '[]');
-    if (!Array.isArray(raw)) return [];
-    return raw.map(o => ({
-      id: o?.id || '',
-      customer: o?.customer || 'Unknown',
-      customerName: o?.customerName || o?.customer,
-      email: o?.email || '',
-      phone: o?.phone || '',
-      items: (o?.items || []).map(it => ({
-        productId: it?.productId || '',
-        productName: it?.productName || it?.name || 'Product',
-        image: it?.image || '/assets/product-hero.png',
-        price: Number(it?.price) || 0,
-        quantity: Number(it?.quantity || it?.qty) || 1,
-      })),
-      status: o?.status || 'pending',
-      paymentMethod: o?.paymentMethod || 'UPI',
-      grandTotal: Number(o?.grandTotal || o?.grand_total || o?.subtotal) || 0,
-      createdAt: o?.createdAt || o?.placedAt || new Date().toISOString(),
-      trackingNumber: o?.trackingNumber || o?.trackingId || '',
-      carrier: o?.carrier || '',
-    }));
-  } catch { return []; }
+    const n = Number(val);
+    return isNaN(n) ? 0 : n;
+  } catch {
+    return 0;
+  }
 }
 
-function loadUsers() {
+function safeString(val) {
   try {
-    const raw = JSON.parse(localStorage.getItem('sword_users') || '[]');
-    if (!Array.isArray(raw)) return [];
-    return raw.map(u => ({
-      id: u?.id || '',
-      name: u?.name || 'Unknown',
-      email: u?.email || '',
-      phone: u?.phone || '',
-      role: u?.role || 'customer',
-      status: u?.status || 'active',
-      joinDate: u?.joinDate || u?.joined || new Date().toISOString(),
-      avatar: u?.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u?.name || 'User')}&background=1a365d&color=fff`,
-    }));
-  } catch { return []; }
+    if (val === null || val === undefined) return '';
+    return String(val);
+  } catch {
+    return '';
+  }
 }
 
-function loadLeads() {
+function formatDate(dateStr) {
   try {
-    return JSON.parse(localStorage.getItem('sword_interested_customers') || '[]');
-  } catch { return []; }
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return safeString(dateStr);
+    return d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+  } catch {
+    return safeString(dateStr) || '-';
+  }
 }
 
-function saveProducts(products) {
-  localStorage.setItem('sword_products', JSON.stringify(products));
+function formatCurrency(val) {
+  try {
+    const n = safeNum(val);
+    return '$' + n.toFixed(2);
+  } catch {
+    return '$0.00';
+  }
 }
 
-// ─── Navigation ───────────────────────────────────────────
-const NAV = [
+// ─── Navigation Config ──────────────────────────────────────────
+
+const NAV_ITEMS = [
   { key: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { key: 'orders', label: 'Orders', icon: ShoppingBag },
   { key: 'products', label: 'Products', icon: Package },
@@ -105,388 +91,1074 @@ const NAV = [
   { key: 'settings', label: 'Settings', icon: Settings },
 ];
 
-// ─── KPI Cards ────────────────────────────────────────────
-function KPICards({ orders, products }) {
-  const revenue = orders.reduce((s, o) => s + (Number(o?.grandTotal) || 0), 0);
-  const delivered = orders.filter(o => o?.status === 'delivered').length;
-  const lowStock = products.filter(p => (Number(p?.stock) || 0) < 10).length;
+// ─── Main Component ─────────────────────────────────────────────
 
-  const cards = [
-    { label: 'Revenue', value: INR(revenue), icon: IndianRupee, col: 'text-[#D4AF37]' },
-    { label: 'Orders', value: orders.length, icon: ShoppingBag, col: 'text-[#00B4D8]' },
-    { label: 'Products', value: products.length, icon: Package, col: 'text-[#2EC4B6]' },
-    { label: 'Delivered', value: delivered, icon: TrendingUp, col: 'text-[#2EC4B6]' },
-    { label: 'Pending', value: orders.length - delivered, icon: TrendingDown, col: 'text-[#E8A838]' },
-    { label: 'Low Stock', value: lowStock, icon: TrendingDown, col: lowStock > 0 ? 'text-[#E63946]' : 'text-[#2EC4B6]' },
-  ];
-
-  return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-8">
-      {cards.map(c => (
-        <div key={c.label} className="bg-white/[0.03] border border-white/10 p-4">
-          <c.icon size={18} className={`${c.col} mb-2`} />
-          <p className="text-xl font-bold text-white">{c.value}</p>
-          <p className="text-xs text-[#A0A0A0] mt-1">{c.label}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-// ─── Orders Table ─────────────────────────────────────────
-function OrdersTable({ orders }) {
-  const [filter, setFilter] = useState('');
-  const list = (orders || []).filter(o =>
-    !filter || (o?.customer || '').toLowerCase().includes(filter.toLowerCase()) || (o?.id || '').includes(filter)
-  );
-
-  return (
-    <div>
-      <div className="flex items-center gap-4 mb-4">
-        <div className="relative flex-1 max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
-          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search orders..."
-            className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
-        </div>
-        <span className="text-[#A0A0A0] text-sm">{list.length} orders</span>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b border-white/10 text-left">
-            {['ID', 'Customer', 'Items', 'Total', 'Status', 'Date'].map(h => <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>)}
-          </tr></thead>
-          <tbody>
-            {list.map((o, i) => (
-              <tr key={o?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
-                <td className="py-3 px-3 text-white font-mono text-xs">{(o?.id || '').slice(0, 10)}</td>
-                <td className="py-3 px-3 text-white">{o?.customer || 'N/A'}</td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{o?.items?.length || 0}</td>
-                <td className="py-3 px-3 text-[#D4AF37]">{INR(o?.grandTotal)}</td>
-                <td className="py-3 px-3"><span className={`px-2 py-1 text-xs rounded-full ${getStatusStyle(o?.status)}`}>{o?.status || '-'}</span></td>
-                <td className="py-3 px-3 text-[#A0A0A0] text-xs">{o?.createdAt ? new Date(o.createdAt).toLocaleDateString() : '-'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {list.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No orders</p>}
-      </div>
-    </div>
-  );
-}
-
-// ─── Products Table ───────────────────────────────────────
-function ProductsTable({ products, onChange }) {
-  const [filter, setFilter] = useState('');
-  const [editing, setEditing] = useState(null);
-  const [showAdd, setShowAdd] = useState(false);
-
-  const list = (products || []).filter(p => !filter || (p?.name || '').toLowerCase().includes(filter.toLowerCase()));
-
-  function handleDelete(id) {
-    if (confirm('Delete?')) { saveProducts(loadProducts().filter(p => p.id !== id)); onChange(); }
-  }
-  function handleSave(form) {
-    const all = loadProducts();
-    if (editing) {
-      const idx = all.findIndex(p => p.id === editing.id);
-      if (idx >= 0) all[idx] = { ...all[idx], ...form };
-    } else {
-      all.push({ id: `p_${Date.now()}`, name: form.name || 'New', price: Number(form.price) || 0, stock: Number(form.stock) || 0, category: form.category || 'General', rating: 4.5, reviews: 0, image: '/assets/product-hero.png', description: form.description || '', specs: {}, inStock: true, visible: true });
-    }
-    saveProducts(all); setEditing(null); setShowAdd(false); onChange();
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="relative max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
-          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search products..."
-            className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
-        </div>
-        <button onClick={() => setShowAdd(true)} className="bg-[#D4AF37] text-black text-xs font-semibold px-4 py-2.5 flex items-center gap-2 hover:bg-[#E5C158] transition-colors">
-          <Plus size={14} /> Add
-        </button>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b border-white/10 text-left">
-            {['Product', 'Category', 'Price', 'Stock', 'Actions'].map(h => <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>)}
-          </tr></thead>
-          <tbody>
-            {list.map((p, i) => (
-              <tr key={p?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
-                <td className="py-3 px-3 flex items-center gap-3">
-                  <img src={p?.image || '/assets/product-hero.png'} className="w-10 h-10 object-contain bg-[#111] rounded" alt="" />
-                  <span className="text-white">{p?.name || 'Unnamed'}</span>
-                </td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{p?.category || '-'}</td>
-                <td className="py-3 px-3 text-[#D4AF37]">{INR(p?.price)}</td>
-                <td className="py-3 px-3 text-white">{p?.stock ?? 0}</td>
-                <td className="py-3 px-3">
-                  <div className="flex gap-2">
-                    <button onClick={() => setEditing(p)} className="p-1.5 text-[#A0A0A0] hover:text-[#D4AF37]"><Pencil size={14} /></button>
-                    <button onClick={() => handleDelete(p?.id)} className="p-1.5 text-[#A0A0A0] hover:text-red-400"><Trash2 size={14} /></button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {list.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No products</p>}
-      </div>
-
-      {(editing || showAdd) && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={() => { setEditing(null); setShowAdd(false); }}>
-          <div className="bg-[#111] border border-white/10 p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
-            <div className="flex justify-between mb-4">
-              <h3 className="text-lg font-bold text-white">{editing ? 'Edit' : 'Add'} Product</h3>
-              <button onClick={() => { setEditing(null); setShowAdd(false); }} className="text-[#A0A0A0]"><X size={20} /></button>
-            </div>
-            <ProductForm product={editing} onSave={handleSave} />
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ProductForm({ product, onSave }) {
-  const [name, setName] = useState(product?.name || '');
-  const [price, setPrice] = useState(String(product?.price || ''));
-  const [stock, setStock] = useState(String(product?.stock || ''));
-  const [category, setCategory] = useState(product?.category || 'Water Purifiers');
-  const [desc, setDesc] = useState(product?.description || '');
-  return (
-    <div className="space-y-4">
-      {[
-        { label: 'Name', val: name, set: setName },
-        { label: 'Price', val: price, set: setPrice, num: true },
-        { label: 'Stock', val: stock, set: setStock, num: true },
-        { label: 'Category', val: category, set: setCategory },
-      ].map(f => (
-        <div key={f.label}>
-          <label className="text-xs text-[#A0A0A0] uppercase mb-1 block">{f.label}</label>
-          <input type={f.num ? 'number' : 'text'} value={f.val} onChange={e => f.set(e.target.value)}
-            className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
-        </div>
-      ))}
-      <div>
-        <label className="text-xs text-[#A0A0A0] uppercase mb-1 block">Description</label>
-        <textarea value={desc} onChange={e => setDesc(e.target.value)}
-          className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] min-h-[60px] placeholder:text-white/30" />
-      </div>
-      <button onClick={() => onSave({ name, price: Number(price), stock: Number(stock), category, description: desc })}
-        className="w-full bg-[#D4AF37] text-black text-sm font-semibold py-2.5 hover:bg-[#E5C158] transition-colors">
-        {product ? 'Update' : 'Add'} Product
-      </button>
-    </div>
-  );
-}
-
-// ─── Users Table ──────────────────────────────────────────
-function UsersTable({ users }) {
-  const [filter, setFilter] = useState('');
-  const list = (users || []).filter(u => !filter || (u?.name || '').toLowerCase().includes(filter.toLowerCase()));
-
-  return (
-    <div>
-      <div className="relative max-w-xs mb-4">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
-        <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search users..."
-          className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b border-white/10 text-left">
-            {['User', 'Email', 'Phone', 'Role', 'Status'].map(h => <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>)}
-          </tr></thead>
-          <tbody>
-            {list.map((u, i) => (
-              <tr key={u?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
-                <td className="py-3 px-3 flex items-center gap-3">
-                  <img src={u?.avatar || ''} className="w-8 h-8 rounded-full bg-[#222]" alt="" />
-                  <span className="text-white">{u?.name || 'Unknown'}</span>
-                </td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{u?.email || '-'}</td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{u?.phone || '-'}</td>
-                <td className="py-3 px-3"><span className={`px-2 py-1 text-xs rounded-full ${u?.role === 'admin' ? 'bg-[#D4AF37]/20 text-[#D4AF37]' : getStatusStyle('active')}`}>{u?.role || '-'}</span></td>
-                <td className="py-3 px-3"><span className={`px-2 py-1 text-xs rounded-full ${getStatusStyle(u?.status)}`}>{u?.status || '-'}</span></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {list.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No users</p>}
-      </div>
-    </div>
-  );
-}
-
-// ─── Leads Table ──────────────────────────────────────────
-function LeadsTable() {
-  const [filter, setFilter] = useState('');
-  const leads = loadLeads();
-  const list = leads.filter((l) => !filter || (l?.name || '').toLowerCase().includes(filter.toLowerCase()));
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="relative max-w-xs">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
-          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search leads..."
-            className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm pl-9 pr-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" />
-        </div>
-        <span className="text-[#A0A0A0] text-sm">{list.length} leads</span>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b border-white/10 text-left">
-            {['Name', 'Email', 'Phone', 'Source', 'Status', 'Date'].map(h => <th key={h} className="pb-3 text-[#A0A0A0] font-medium px-3">{h}</th>)}
-          </tr></thead>
-          <tbody>
-            {list.map((l, i) => (
-              <tr key={l?.id || i} className="border-b border-white/5 hover:bg-white/[0.02]">
-                <td className="py-3 px-3 text-white font-medium">{l?.name || '-'}</td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{l?.email || '-'}</td>
-                <td className="py-3 px-3 text-[#A0A0A0]">{l?.phone || '-'}</td>
-                <td className="py-3 px-3 text-[#A0A0A0] capitalize">{l?.source || '-'}</td>
-                <td className="py-3 px-3"><span className={`px-2 py-1 text-xs rounded-full ${getStatusStyle(l?.status)}`}>{l?.status || 'new'}</span></td>
-                <td className="py-3 px-3 text-[#A0A0A0] text-xs">{l?.timestamp ? new Date(l.timestamp).toLocaleDateString() : '-'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {list.length === 0 && <p className="text-center text-[#A0A0A0] py-12">No leads yet. Chatbot captures will appear here.</p>}
-      </div>
-    </div>
-  );
-}
-
-// ─── Settings ─────────────────────────────────────────────
-function SettingsPage() {
-  const [saved, setSaved] = useState(false);
-  return (
-    <div className="max-w-xl">
-      <h3 className="text-lg font-bold text-white mb-6">Store Settings</h3>
-      <div className="space-y-4">
-        {['Store Name', 'Support Phone', 'Support Email', 'Free Shipping Threshold'].map(label => (
-          <div key={label}>
-            <label className="text-xs text-[#A0A0A0] uppercase mb-1 block">{label}</label>
-            <input className="w-full bg-white/[0.06] border border-white/[0.12] text-white text-sm px-3 py-2.5 outline-none focus:border-[#D4AF37] placeholder:text-white/30" placeholder={label} />
-          </div>
-        ))}
-        <button onClick={() => { setSaved(true); setTimeout(() => setSaved(false), 2000); }}
-          className="bg-[#D4AF37] text-black text-sm font-semibold py-2.5 px-8 hover:bg-[#E5C158] transition-colors">
-          {saved ? 'Saved!' : 'Save'}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ─── MAIN ADMIN ───────────────────────────────────────────
 export default function Admin() {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const [section, setSection] = useState('dashboard');
+
+  const [activeView, setActiveView] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [tick, setTick] = useState(0);
 
-  // Auth guard
+  // Data states
+  const [products, setProducts] = useState([]);
+  const [orders, setOrders] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [leads, setLeads] = useState([]);
+
+  // Search states
+  const [orderSearch, setOrderSearch] = useState('');
+  const [productSearch, setProductSearch] = useState('');
+  const [userSearch, setUserSearch] = useState('');
+  const [leadSearch, setLeadSearch] = useState('');
+
+  // Modal states
+  const [productModalOpen, setProductModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState(null);
+  const [productForm, setProductForm] = useState({ name: '', price: '', stock: '' });
+
+  // Settings form
+  const [settingsForm, setSettingsForm] = useState({
+    siteName: 'SWORD',
+    contactEmail: 'admin@sword.com',
+    phone: '+1 (555) 000-0000',
+  });
+
+  // Pagination states
+  const [orderPage, setOrderPage] = useState(1);
+  const [productPage, setProductPage] = useState(1);
+  const [userPage, setUserPage] = useState(1);
+  const [leadPage, setLeadPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
+  // ─── Load data from localStorage ──────────────────────────────
   useEffect(() => {
-    if (!isAdmin) {
-      const t = setTimeout(() => navigate('/account'), 600);
-      return () => clearTimeout(t);
+    try {
+      const p = localStorage.getItem('sword_products');
+      setProducts(safeParse(p, []));
+    } catch {
+      setProducts([]);
     }
-  }, [isAdmin, navigate]);
+    try {
+      const o = localStorage.getItem('sword_orders');
+      setOrders(safeParse(o, []));
+    } catch {
+      setOrders([]);
+    }
+    try {
+      const u = localStorage.getItem('sword_users');
+      setUsers(safeParse(u, []));
+    } catch {
+      setUsers([]);
+    }
+    try {
+      const l = localStorage.getItem('sword_interested_customers');
+      setLeads(safeParse(l, []));
+    } catch {
+      setLeads([]);
+    }
+  }, []);
 
-  if (!isAdmin) {
+  // ─── Derived KPI Data ─────────────────────────────────────────
+  const kpis = useMemo(() => {
+    try {
+      const revenue = orders.reduce((sum, o) => {
+        return sum + safeNum(o?.grandTotal);
+      }, 0);
+
+      const delivered = orders.filter((o) => {
+        return safeString(o?.status).toLowerCase() === 'delivered';
+      }).length;
+
+      const pending = orders.filter((o) => {
+        return safeString(o?.status).toLowerCase() === 'pending';
+      }).length;
+
+      const lowStock = products.filter((p) => {
+        return safeNum(p?.stock) <= 5;
+      }).length;
+
+      return {
+        revenue,
+        totalOrders: orders.length,
+        totalProducts: products.length,
+        delivered,
+        pending,
+        lowStock,
+      };
+    } catch {
+      return { revenue: 0, totalOrders: 0, totalProducts: 0, delivered: 0, pending: 0, lowStock: 0 };
+    }
+  }, [orders, products]);
+
+  // ─── Filtered & Paginated Data ────────────────────────────────
+  const filteredOrders = useMemo(() => {
+    try {
+      const s = orderSearch.toLowerCase().trim();
+      const list = orders.filter((o) => {
+        if (!s) return true;
+        const id = safeString(o?.id || o?._id).toLowerCase();
+        const customer = safeString(o?.customerName || o?.customer?.name).toLowerCase();
+        const status = safeString(o?.status).toLowerCase();
+        return id.includes(s) || customer.includes(s) || status.includes(s);
+      });
+      return list;
+    } catch {
+      return [];
+    }
+  }, [orders, orderSearch]);
+
+  const pagedOrders = useMemo(() => {
+    try {
+      const start = (orderPage - 1) * ITEMS_PER_PAGE;
+      return filteredOrders.slice(start, start + ITEMS_PER_PAGE);
+    } catch {
+      return [];
+    }
+  }, [filteredOrders, orderPage]);
+
+  const orderPageCount = Math.max(1, Math.ceil(filteredOrders.length / ITEMS_PER_PAGE));
+
+  const filteredProducts = useMemo(() => {
+    try {
+      const s = productSearch.toLowerCase().trim();
+      const list = products.filter((p) => {
+        if (!s) return true;
+        const name = safeString(p?.name).toLowerCase();
+        return name.includes(s);
+      });
+      return list;
+    } catch {
+      return [];
+    }
+  }, [products, productSearch]);
+
+  const pagedProducts = useMemo(() => {
+    try {
+      const start = (productPage - 1) * ITEMS_PER_PAGE;
+      return filteredProducts.slice(start, start + ITEMS_PER_PAGE);
+    } catch {
+      return [];
+    }
+  }, [filteredProducts, productPage]);
+
+  const productPageCount = Math.max(1, Math.ceil(filteredProducts.length / ITEMS_PER_PAGE));
+
+  const filteredUsers = useMemo(() => {
+    try {
+      const s = userSearch.toLowerCase().trim();
+      const list = users.filter((u) => {
+        if (!s) return true;
+        const name = safeString(u?.name || u?.displayName).toLowerCase();
+        const email = safeString(u?.email).toLowerCase();
+        return name.includes(s) || email.includes(s);
+      });
+      return list;
+    } catch {
+      return [];
+    }
+  }, [users, userSearch]);
+
+  const pagedUsers = useMemo(() => {
+    try {
+      const start = (userPage - 1) * ITEMS_PER_PAGE;
+      return filteredUsers.slice(start, start + ITEMS_PER_PAGE);
+    } catch {
+      return [];
+    }
+  }, [filteredUsers, userPage]);
+
+  const userPageCount = Math.max(1, Math.ceil(filteredUsers.length / ITEMS_PER_PAGE));
+
+  const filteredLeads = useMemo(() => {
+    try {
+      const s = leadSearch.toLowerCase().trim();
+      const list = leads.filter((l) => {
+        if (!s) return true;
+        const name = safeString(l?.name).toLowerCase();
+        const email = safeString(l?.email).toLowerCase();
+        const phone = safeString(l?.phone).toLowerCase();
+        const source = safeString(l?.source).toLowerCase();
+        return name.includes(s) || email.includes(s) || phone.includes(s) || source.includes(s);
+      });
+      return list;
+    } catch {
+      return [];
+    }
+  }, [leads, leadSearch]);
+
+  const pagedLeads = useMemo(() => {
+    try {
+      const start = (leadPage - 1) * ITEMS_PER_PAGE;
+      return filteredLeads.slice(start, start + ITEMS_PER_PAGE);
+    } catch {
+      return [];
+    }
+  }, [filteredLeads, leadPage]);
+
+  const leadPageCount = Math.max(1, Math.ceil(filteredLeads.length / ITEMS_PER_PAGE));
+
+  // ─── Handlers ─────────────────────────────────────────────────
+
+  function handleLogout() {
+    try {
+      logout();
+    } catch {
+      /* noop */
+    }
+    navigate('/');
+  }
+
+  function openAddProduct() {
+    setEditingProduct(null);
+    setProductForm({ name: '', price: '', stock: '' });
+    setProductModalOpen(true);
+  }
+
+  function openEditProduct(product) {
+    try {
+      setEditingProduct(product);
+      setProductForm({
+        name: safeString(product?.name),
+        price: safeString(product?.price),
+        stock: safeString(product?.stock),
+      });
+      setProductModalOpen(true);
+    } catch {
+      /* noop */
+    }
+  }
+
+  function closeProductModal() {
+    setProductModalOpen(false);
+    setEditingProduct(null);
+    setProductForm({ name: '', price: '', stock: '' });
+  }
+
+  function saveProduct() {
+    try {
+      const name = productForm.name.trim();
+      const price = safeNum(productForm.price);
+      const stock = safeNum(productForm.stock);
+      if (!name) return;
+
+      if (editingProduct) {
+        setProducts((prev) => {
+          try {
+            const updated = prev.map((p) => {
+              if (p?.id === editingProduct?.id || p?._id === editingProduct?._id) {
+                return { ...p, name, price, stock };
+              }
+              return p;
+            });
+            try {
+              localStorage.setItem('sword_products', JSON.stringify(updated));
+            } catch {
+              /* noop */
+            }
+            return updated;
+          } catch {
+            return prev;
+          }
+        });
+      } else {
+        const newProduct = {
+          id: 'prod_' + Date.now(),
+          name,
+          price,
+          stock,
+          createdAt: new Date().toISOString(),
+        };
+        setProducts((prev) => {
+          const updated = [...prev, newProduct];
+          try {
+            localStorage.setItem('sword_products', JSON.stringify(updated));
+          } catch {
+            /* noop */
+          }
+          return updated;
+        });
+      }
+      closeProductModal();
+    } catch {
+      /* noop */
+    }
+  }
+
+  function deleteProduct(product) {
+    try {
+      const id = product?.id || product?._id;
+      if (!id) return;
+      const ok = window.confirm('Delete this product?');
+      if (!ok) return;
+      setProducts((prev) => {
+        try {
+          const updated = prev.filter((p) => {
+            return p?.id !== id && p?._id !== id;
+          });
+          try {
+            localStorage.setItem('sword_products', JSON.stringify(updated));
+          } catch {
+            /* noop */
+          }
+          return updated;
+        } catch {
+          return prev;
+        }
+      });
+    } catch {
+      /* noop */
+    }
+  }
+
+  // ─── Render Helpers ───────────────────────────────────────────
+
+  function getInitials(name) {
+    try {
+      const s = safeString(name);
+      if (!s) return 'A';
+      return s
+        .split(' ')
+        .map((w) => w[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2);
+    } catch {
+      return 'A';
+    }
+  }
+
+  // ─── Status Badge ─────────────────────────────────────────────
+  function StatusBadge({ status }) {
+    const s = safeString(status).toLowerCase();
+    let colorClass = 'bg-gray-600 text-gray-200';
+    if (s === 'delivered' || s === 'active') colorClass = 'bg-green-600 text-green-100';
+    else if (s === 'pending' || s === 'processing') colorClass = 'bg-yellow-600 text-yellow-100';
+    else if (s === 'cancelled' || s === 'inactive') colorClass = 'bg-red-600 text-red-100';
+    else if (s === 'shipped') colorClass = 'bg-blue-600 text-blue-100';
+
     return (
-      <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-10 h-10 border-2 border-[#D4AF37] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-[#A0A0A0] text-sm">Checking admin access...</p>
+      <span className={'px-2 py-1 rounded-full text-xs font-medium capitalize ' + colorClass}>
+        {s || 'unknown'}
+      </span>
+    );
+  }
+
+  // ─── KPI Card ─────────────────────────────────────────────────
+  function KpiCard({ icon: Icon, label, value, color }) {
+    return (
+      <div className="rounded-xl p-5" style={{ backgroundColor: '#1A1A1A' }}>
+        <div className="flex items-center gap-4">
+          <div className={'w-12 h-12 rounded-lg flex items-center justify-center ' + color}>
+            <Icon size={24} />
+          </div>
+          <div>
+            <p className="text-gray-400 text-sm">{label}</p>
+            <p className="text-2xl font-bold mt-1">{value}</p>
+          </div>
         </div>
       </div>
     );
   }
 
-  const refresh = () => setTick(t => t + 1);
-
-  // Load data fresh on each tick
-  const products = loadProducts();
-  const orders = loadOrders();
-  const users = loadUsers();
-
-  const renderSection = () => {
-    switch (section) {
-      case 'dashboard': return <><KPICards orders={orders} products={products} /><OrdersTable orders={orders} /></>;
-      case 'orders': return <OrdersTable orders={orders} />;
-      case 'products': return <ProductsTable products={products} onChange={refresh} />;
-      case 'users': return <UsersTable users={users} />;
-      case 'leads': return <LeadsTable />;
-      case 'settings': return <SettingsPage />;
-      default: return <KPICards orders={orders} products={products} />;
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-[#0A0A0A]">
-      {/* Top bar */}
-      <div className="fixed top-0 left-0 right-0 z-50 h-[72px] bg-[#0A0A0A]/95 backdrop-blur-md border-b border-white/10 px-4 lg:px-8 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="lg:hidden p-2 text-white hover:bg-white/10 rounded">
-            <Menu size={20} />
+  // ─── Pagination ───────────────────────────────────────────────
+  function Pagination({ page, setPage, pageCount, totalLabel }) {
+    return (
+      <div className="flex items-center justify-between mt-4">
+        <p className="text-sm text-gray-400">{totalLabel}</p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition-colors"
+          >
+            <ChevronLeft size={18} />
           </button>
-          <span className="text-[#D4AF37] font-bold text-lg tracking-wider">SWORD</span>
-          <span className="text-white/30">|</span>
-          <span className="text-[#A0A0A0] text-sm">Admin</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-white text-sm hidden sm:inline">{user?.name}</span>
-          <button onClick={() => { logout(); navigate('/'); }} className="text-[#E63946] text-sm hover:bg-[#E63946]/10 px-3 py-1.5 rounded transition-colors">
-            <LogOut size={16} className="inline mr-1" />Exit
+          <span className="text-sm text-gray-400">
+            Page {page} of {pageCount}
+          </span>
+          <button
+            onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+            disabled={page >= pageCount}
+            className="p-2 rounded-lg hover:bg-white/10 disabled:opacity-30 transition-colors"
+          >
+            <ChevronRight size={18} />
           </button>
         </div>
       </div>
+    );
+  }
 
-      <div className="flex pt-[72px]">
-        {/* Sidebar */}
-        <aside className={`fixed lg:sticky top-[72px] left-0 z-40 w-[240px] h-[calc(100vh-72px)] bg-[#0E0E0E] border-r border-white/10 overflow-y-auto transition-transform duration-300 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
-          <div className="p-4 border-b border-white/10">
-            <div className="flex items-center gap-3">
-              <img src={user?.avatar || ''} className="w-9 h-9 rounded-full bg-[#222]" alt="" />
-              <div>
-                <p className="text-white text-sm font-medium">{user?.name}</p>
-                <p className="text-[#666] text-xs">{user?.email}</p>
-              </div>
+  // ─── Views ────────────────────────────────────────────────────
+
+  function DashboardView() {
+    return (
+      <div>
+        <h2 className="text-2xl font-bold mb-6">Dashboard</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <KpiCard
+            icon={DollarSign}
+            label="Total Revenue"
+            value={formatCurrency(kpis.revenue)}
+            color="bg-emerald-600/20 text-emerald-400"
+          />
+          <KpiCard
+            icon={ShoppingBag}
+            label="Total Orders"
+            value={kpis.totalOrders}
+            color="bg-blue-600/20 text-blue-400"
+          />
+          <KpiCard
+            icon={Archive}
+            label="Products"
+            value={kpis.totalProducts}
+            color="bg-purple-600/20 text-purple-400"
+          />
+          <KpiCard
+            icon={CheckCircle}
+            label="Delivered"
+            value={kpis.delivered}
+            color="bg-green-600/20 text-green-400"
+          />
+          <KpiCard
+            icon={Clock}
+            label="Pending"
+            value={kpis.pending}
+            color="bg-yellow-600/20 text-yellow-400"
+          />
+          <KpiCard
+            icon={AlertTriangle}
+            label="Low Stock"
+            value={kpis.lowStock}
+            color="bg-red-600/20 text-red-400"
+          />
+        </div>
+
+        {/* Recent Orders Table */}
+        <div className="mt-8 rounded-xl p-5" style={{ backgroundColor: '#1A1A1A' }}>
+          <h3 className="text-lg font-semibold mb-4">Recent Orders</h3>
+          {orders.length === 0 ? (
+            <p className="text-gray-500">No orders yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-gray-400 text-left">
+                    <th className="pb-3 font-medium">ID</th>
+                    <th className="pb-3 font-medium">Customer</th>
+                    <th className="pb-3 font-medium">Total</th>
+                    <th className="pb-3 font-medium">Status</th>
+                    <th className="pb-3 font-medium">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {orders.slice(0, 5).map((o, idx) => (
+                    <tr key={idx} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-3 font-mono text-xs text-gray-400">
+                        #{safeString(o?.id || o?._id).slice(-6)}
+                      </td>
+                      <td className="py-3">
+                        {safeString(o?.customerName || o?.customer?.name) || 'Guest'}
+                      </td>
+                      <td className="py-3">{formatCurrency(o?.grandTotal)}</td>
+                      <td className="py-3">
+                        <StatusBadge status={o?.status} />
+                      </td>
+                      <td className="py-3 text-gray-400">{formatDate(o?.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function OrdersView() {
+    return (
+      <div>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+          <h2 className="text-2xl font-bold">Orders</h2>
+          <div className="relative w-full sm:w-72">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+            <input
+              type="text"
+              value={orderSearch}
+              onChange={(e) => {
+                setOrderSearch(e.target.value);
+                setOrderPage(1);
+              }}
+              placeholder="Search orders..."
+              className="w-full pl-10 pr-4 py-2 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/10 focus:border-white/30 transition-colors"
+              style={{ backgroundColor: '#1A1A1A' }}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-xl overflow-hidden" style={{ backgroundColor: '#1A1A1A' }}>
+          {filteredOrders.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              {orderSearch ? 'No orders match your search.' : 'No orders found.'}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-gray-400 text-left">
+                    <th className="py-3 px-4 font-medium">ID</th>
+                    <th className="py-3 px-4 font-medium">Customer</th>
+                    <th className="py-3 px-4 font-medium">Items</th>
+                    <th className="py-3 px-4 font-medium">Total</th>
+                    <th className="py-3 px-4 font-medium">Status</th>
+                    <th className="py-3 px-4 font-medium">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedOrders.map((o, idx) => (
+                    <tr key={idx} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-3 px-4 font-mono text-xs text-gray-400">
+                        #{safeString(o?.id || o?._id).slice(-6)}
+                      </td>
+                      <td className="py-3 px-4">
+                        {safeString(o?.customerName || o?.customer?.name) || 'Guest'}
+                      </td>
+                      <td className="py-3 px-4">
+                        {(() => {
+                          try {
+                            const items = o?.items || o?.orderItems || [];
+                            return Array.isArray(items) ? items.length : 0;
+                          } catch {
+                            return 0;
+                          }
+                        })()}
+                      </td>
+                      <td className="py-3 px-4 font-medium">{formatCurrency(o?.grandTotal)}</td>
+                      <td className="py-3 px-4">
+                        <StatusBadge status={o?.status} />
+                      </td>
+                      <td className="py-3 px-4 text-gray-400">{formatDate(o?.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <Pagination
+          page={orderPage}
+          setPage={setOrderPage}
+          pageCount={orderPageCount}
+          totalLabel={`${filteredOrders.length} order(s)`}
+        />
+      </div>
+    );
+  }
+
+  function ProductsView() {
+    return (
+      <div>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+          <h2 className="text-2xl font-bold">Products</h2>
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="relative flex-1 sm:flex-none sm:w-64">
+              <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+              <input
+                type="text"
+                value={productSearch}
+                onChange={(e) => {
+                  setProductSearch(e.target.value);
+                  setProductPage(1);
+                }}
+                placeholder="Search products..."
+                className="w-full pl-10 pr-4 py-2 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/10 focus:border-white/30 transition-colors"
+                style={{ backgroundColor: '#1A1A1A' }}
+              />
+            </div>
+            <button
+              onClick={openAddProduct}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white text-black text-sm font-medium hover:bg-gray-200 transition-colors"
+            >
+              <Plus size={16} /> Add
+            </button>
+          </div>
+        </div>
+
+        <div className="rounded-xl overflow-hidden" style={{ backgroundColor: '#1A1A1A' }}>
+          {filteredProducts.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              {productSearch ? 'No products match your search.' : 'No products found.'}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-gray-400 text-left">
+                    <th className="py-3 px-4 font-medium">Name</th>
+                    <th className="py-3 px-4 font-medium">Price</th>
+                    <th className="py-3 px-4 font-medium">Stock</th>
+                    <th className="py-3 px-4 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedProducts.map((p, idx) => (
+                    <tr key={idx} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-3 px-4">{safeString(p?.name) || 'Unnamed'}</td>
+                      <td className="py-3 px-4 font-medium">{formatCurrency(p?.price)}</td>
+                      <td className="py-3 px-4">
+                        <span
+                          className={
+                            safeNum(p?.stock) <= 5
+                              ? 'text-red-400 font-medium'
+                              : 'text-green-400'
+                          }
+                        >
+                          {safeNum(p?.stock)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => openEditProduct(p)}
+                            className="p-1.5 rounded-lg hover:bg-white/10 text-blue-400 transition-colors"
+                          >
+                            <Pencil size={16} />
+                          </button>
+                          <button
+                            onClick={() => deleteProduct(p)}
+                            className="p-1.5 rounded-lg hover:bg-white/10 text-red-400 transition-colors"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <Pagination
+          page={productPage}
+          setPage={setProductPage}
+          pageCount={productPageCount}
+          totalLabel={`${filteredProducts.length} product(s)`}
+        />
+      </div>
+    );
+  }
+
+  function UsersView() {
+    return (
+      <div>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+          <h2 className="text-2xl font-bold">Users</h2>
+          <div className="relative w-full sm:w-72">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+            <input
+              type="text"
+              value={userSearch}
+              onChange={(e) => {
+                setUserSearch(e.target.value);
+                setUserPage(1);
+              }}
+              placeholder="Search users..."
+              className="w-full pl-10 pr-4 py-2 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/10 focus:border-white/30 transition-colors"
+              style={{ backgroundColor: '#1A1A1A' }}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-xl overflow-hidden" style={{ backgroundColor: '#1A1A1A' }}>
+          {filteredUsers.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              {userSearch ? 'No users match your search.' : 'No users found.'}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-gray-400 text-left">
+                    <th className="py-3 px-4 font-medium">Name</th>
+                    <th className="py-3 px-4 font-medium">Email</th>
+                    <th className="py-3 px-4 font-medium">Role</th>
+                    <th className="py-3 px-4 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedUsers.map((u, idx) => (
+                    <tr key={idx} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs font-medium">
+                            {getInitials(u?.name || u?.displayName)}
+                          </div>
+                          <span>{safeString(u?.name || u?.displayName) || 'Unknown'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 text-gray-400">{safeString(u?.email) || '-'}</td>
+                      <td className="py-3 px-4 capitalize">{safeString(u?.role) || 'user'}</td>
+                      <td className="py-3 px-4">
+                        <StatusBadge status={u?.status || 'active'} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <Pagination
+          page={userPage}
+          setPage={setUserPage}
+          pageCount={userPageCount}
+          totalLabel={`${filteredUsers.length} user(s)`}
+        />
+      </div>
+    );
+  }
+
+  function LeadsView() {
+    return (
+      <div>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+          <h2 className="text-2xl font-bold">Leads</h2>
+          <div className="relative w-full sm:w-72">
+            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
+            <input
+              type="text"
+              value={leadSearch}
+              onChange={(e) => {
+                setLeadSearch(e.target.value);
+                setLeadPage(1);
+              }}
+              placeholder="Search leads..."
+              className="w-full pl-10 pr-4 py-2 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/10 focus:border-white/30 transition-colors"
+              style={{ backgroundColor: '#1A1A1A' }}
+            />
+          </div>
+        </div>
+
+        <div className="rounded-xl overflow-hidden" style={{ backgroundColor: '#1A1A1A' }}>
+          {filteredLeads.length === 0 ? (
+            <div className="p-8 text-center text-gray-500">
+              {leadSearch ? 'No leads match your search.' : 'No leads found.'}
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-gray-400 text-left">
+                    <th className="py-3 px-4 font-medium">Name</th>
+                    <th className="py-3 px-4 font-medium">Email</th>
+                    <th className="py-3 px-4 font-medium">Phone</th>
+                    <th className="py-3 px-4 font-medium">Source</th>
+                    <th className="py-3 px-4 font-medium">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pagedLeads.map((l, idx) => (
+                    <tr key={idx} className="border-b border-white/5 hover:bg-white/5">
+                      <td className="py-3 px-4">{safeString(l?.name) || 'Unknown'}</td>
+                      <td className="py-3 px-4 text-gray-400">{safeString(l?.email) || '-'}</td>
+                      <td className="py-3 px-4 text-gray-400">{safeString(l?.phone) || '-'}</td>
+                      <td className="py-3 px-4">
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-white/10 text-gray-300">
+                          {safeString(l?.source) || 'website'}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-gray-400">{formatDate(l?.createdAt)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <Pagination
+          page={leadPage}
+          setPage={setLeadPage}
+          pageCount={leadPageCount}
+          totalLabel={`${filteredLeads.length} lead(s)`}
+        />
+      </div>
+    );
+  }
+
+  function SettingsView() {
+    return (
+      <div className="max-w-2xl">
+        <h2 className="text-2xl font-bold mb-6">Settings</h2>
+        <div className="rounded-xl p-6 space-y-5" style={{ backgroundColor: '#1A1A1A' }}>
+          <div>
+            <label className="block text-sm text-gray-400 mb-2">Site Name</label>
+            <input
+              type="text"
+              value={settingsForm.siteName}
+              onChange={(e) =>
+                setSettingsForm((prev) => ({ ...prev, siteName: e.target.value }))
+              }
+              className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/10 focus:border-white/30 transition-colors"
+              style={{ backgroundColor: '#111' }}
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-2">Contact Email</label>
+            <input
+              type="email"
+              value={settingsForm.contactEmail}
+              onChange={(e) =>
+                setSettingsForm((prev) => ({ ...prev, contactEmail: e.target.value }))
+              }
+              className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/10 focus:border-white/30 transition-colors"
+              style={{ backgroundColor: '#111' }}
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-gray-400 mb-2">Phone Number</label>
+            <input
+              type="text"
+              value={settingsForm.phone}
+              onChange={(e) =>
+                setSettingsForm((prev) => ({ ...prev, phone: e.target.value }))
+              }
+              className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/10 focus:border-white/30 transition-colors"
+              style={{ backgroundColor: '#111' }}
+            />
+          </div>
+          <div className="pt-2">
+            <button
+              onClick={() => {
+                try {
+                  localStorage.setItem('sword_settings', JSON.stringify(settingsForm));
+                  alert('Settings saved!');
+                } catch {
+                  /* noop */
+                }
+              }}
+              className="px-6 py-2.5 rounded-lg bg-white text-black text-sm font-medium hover:bg-gray-200 transition-colors"
+            >
+              Save Settings
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Product Modal ────────────────────────────────────────────
+
+  function ProductModal() {
+    if (!productModalOpen) return null;
+
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
+        <div
+          className="w-full max-w-md rounded-xl p-6 border border-white/10"
+          style={{ backgroundColor: '#1A1A1A' }}
+        >
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-lg font-semibold">
+              {editingProduct ? 'Edit Product' : 'Add Product'}
+            </h3>
+            <button
+              onClick={closeProductModal}
+              className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Product Name</label>
+              <input
+                type="text"
+                value={productForm.name}
+                onChange={(e) =>
+                  setProductForm((prev) => ({ ...prev, name: e.target.value }))
+                }
+                placeholder="Enter product name"
+                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/10 focus:border-white/30 transition-colors"
+                style={{ backgroundColor: '#111' }}
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Price ($)</label>
+              <input
+                type="number"
+                value={productForm.price}
+                onChange={(e) =>
+                  setProductForm((prev) => ({ ...prev, price: e.target.value }))
+                }
+                placeholder="0.00"
+                min="0"
+                step="0.01"
+                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/10 focus:border-white/30 transition-colors"
+                style={{ backgroundColor: '#111' }}
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-gray-400 mb-2">Stock Quantity</label>
+              <input
+                type="number"
+                value={productForm.stock}
+                onChange={(e) =>
+                  setProductForm((prev) => ({ ...prev, stock: e.target.value }))
+                }
+                placeholder="0"
+                min="0"
+                className="w-full px-4 py-2.5 rounded-lg text-sm text-white placeholder-gray-500 outline-none border border-white/10 focus:border-white/30 transition-colors"
+                style={{ backgroundColor: '#111' }}
+              />
             </div>
           </div>
-          <nav className="p-3 space-y-1">
-            {NAV.map(item => {
-              const Icon = item.icon;
-              const active = section === item.key;
-              return (
-                <button key={item.key} onClick={() => { setSection(item.key); setSidebarOpen(false); }}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${active ? 'bg-[#D4AF37]/15 text-[#D4AF37] border border-[#D4AF37]/30' : 'text-[#A0A0A0] hover:text-white hover:bg-white/5'}`}>
-                  <Icon size={18} /> {item.label}
-                </button>
-              );
-            })}
-          </nav>
-        </aside>
 
-        {sidebarOpen && <div className="fixed inset-0 bg-black/50 z-30 lg:hidden" onClick={() => setSidebarOpen(false)} />}
-
-        {/* Main */}
-        <main className="flex-1 p-4 lg:p-8 min-h-[calc(100vh-72px)] overflow-y-auto">
-          <div className="flex items-center justify-between mb-8">
-            <h1 className="text-2xl font-bold text-white">{NAV.find(n => n.key === section)?.label || 'Dashboard'}</h1>
-            <span className="text-[#A0A0A0] text-sm">{new Date().toLocaleDateString('en-IN')}</span>
+          <div className="flex items-center gap-3 mt-6">
+            <button
+              onClick={closeProductModal}
+              className="flex-1 px-4 py-2.5 rounded-lg text-sm border border-white/10 hover:bg-white/5 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={saveProduct}
+              className="flex-1 px-4 py-2.5 rounded-lg text-sm bg-white text-black font-medium hover:bg-gray-200 transition-colors"
+            >
+              {editingProduct ? 'Save Changes' : 'Add Product'}
+            </button>
           </div>
-          {renderSection()}
-        </main>
+        </div>
       </div>
+    );
+  }
+
+  // ─── Render ───────────────────────────────────────────────────
+
+  const isAdmin = safeString(user?.role).toLowerCase() === 'admin';
+
+  return (
+    <div className="min-h-screen bg-[#0A0A0A] text-white">
+      {/* Admin Banner */}
+      {!isAdmin && (
+        <div className="fixed top-16 left-0 right-0 z-30 bg-yellow-600/20 border-b border-yellow-600/40 px-4 py-2 text-center text-sm text-yellow-400">
+          Login as admin to edit. You are currently viewing in read-only mode.
+        </div>
+      )}
+
+      {/* Top Bar */}
+      <header className="fixed top-0 left-0 right-0 h-16 bg-[#0A0A0A] border-b border-white/10 flex items-center justify-between px-4 z-40">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="lg:hidden p-2 rounded-lg hover:bg-white/10 transition-colors"
+          >
+            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center">
+              <TrendingUp size={18} className="text-black" />
+            </div>
+            <span className="text-lg font-bold tracking-tight">SWORD Admin</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <span className="hidden sm:inline text-sm text-gray-400">
+            {safeString(user?.name || user?.displayName || user?.email) || 'Admin'}
+          </span>
+          <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs font-medium">
+            {getInitials(user?.name || user?.displayName || user?.email)}
+          </div>
+          <button
+            onClick={handleLogout}
+            className="p-2 rounded-lg hover:bg-white/10 text-gray-400 hover:text-white transition-colors"
+            title="Logout"
+          >
+            <LogOut size={18} />
+          </button>
+        </div>
+      </header>
+
+      {/* Sidebar Overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside
+        className={
+          'fixed top-16 left-0 bottom-0 w-64 bg-[#111] border-r border-white/10 z-30 transform transition-transform duration-200 lg:translate-x-0 ' +
+          (sidebarOpen ? 'translate-x-0' : '-translate-x-full')
+        }
+      >
+        <nav className="p-3 space-y-1">
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon;
+            const isActive = activeView === item.key;
+            return (
+              <button
+                key={item.key}
+                onClick={() => {
+                  setActiveView(item.key);
+                  setSidebarOpen(false);
+                }}
+                className={
+                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ' +
+                  (isActive
+                    ? 'bg-white/10 text-white'
+                    : 'text-gray-400 hover:text-white hover:bg-white/5')
+                }
+              >
+                <Icon size={18} />
+                {item.label}
+              </button>
+            );
+          })}
+        </nav>
+
+        {/* Sidebar Footer */}
+        <div className="absolute bottom-0 left-0 right-0 p-4 border-t border-white/10">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-xs font-medium">
+              {getInitials(user?.name || user?.displayName || user?.email)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">
+                {safeString(user?.name || user?.displayName) || 'Admin User'}
+              </p>
+              <p className="text-xs text-gray-500 truncate">
+                {safeString(user?.email) || 'admin@sword.com'}
+              </p>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main
+        className={
+          'pt-16 min-h-screen transition-all lg:ml-64 ' +
+          (!isAdmin ? 'mt-8' : '')
+        }
+      >
+        <div className="p-4 sm:p-6 lg:p-8">
+          {activeView === 'dashboard' && <DashboardView />}
+          {activeView === 'orders' && <OrdersView />}
+          {activeView === 'products' && <ProductsView />}
+          {activeView === 'users' && <UsersView />}
+          {activeView === 'leads' && <LeadsView />}
+          {activeView === 'settings' && <SettingsView />}
+        </div>
+      </main>
+
+      {/* Product Modal */}
+      <ProductModal />
     </div>
   );
 }

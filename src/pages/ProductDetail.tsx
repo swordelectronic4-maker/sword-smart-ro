@@ -15,7 +15,7 @@ function formatPrice(price: number) {
   }).format(price);
 }
 
-function calculateEMI(principal: number, months: number, annualRate: number = 15) {
+function calculateEMI(principal: number, months: number, annualRate: number = 14) {
   const r = annualRate / 12 / 100;
   const emi = (principal * r * Math.pow(1 + r, months)) / (Math.pow(1 + r, months) - 1);
   const total = emi * months;
@@ -205,7 +205,7 @@ export default function ProductDetail() {
                 <div className="flex items-center gap-2">
                   <Zap size={16} className="text-[#D4AF37]" />
                   <span className="text-sm text-white">
-                    No Cost EMI starting at{' '}
+                    Easy EMI starting at{' '}
                     <span className="text-[#D4AF37] font-['JetBrains_Mono'] font-semibold">
                       {formatPrice(calculateEMI(product.price, 12).emi)}/month
                     </span>
@@ -224,7 +224,7 @@ export default function ProductDetail() {
                     className="overflow-hidden"
                   >
                     <div className="mt-4 pt-4 border-t border-[#D4AF37]/20">
-                      <p className="text-xs text-[#888] mb-3">EMI options at 15% p.a. | Choose a plan that works for you</p>
+                      <p className="text-xs text-[#888] mb-3">EMI options at 14% p.a. from leading banks | Choose your tenure</p>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {emiOptions.map((months) => {
                           const { emi, total } = calculateEMI(product.price, months);
