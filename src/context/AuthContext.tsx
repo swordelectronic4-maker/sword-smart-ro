@@ -1,4 +1,10 @@
-import { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import type { ReactNode } from 'react';
 
 export interface User {
@@ -6,25 +12,24 @@ export interface User {
   name: string;
   email: string;
   phone: string;
-  role: 'customer' | 'admin';
+  role: 'admin' | 'customer';
   avatar?: string;
 }
 
 interface AuthContextType {
-  isAuthenticated: boolean;
   user: User | null;
+  isAuthenticated: boolean;
   isAdmin: boolean;
-  login: (email: string, password: string) => boolean;
-  googleLogin: () => boolean;
+  authReady: boolean;
+  login: (username: string, password: string) => Promise<boolean>;
   logout: () => void;
-  register: (name: string, email: string, phone: string, password: string) => boolean;
+  setUser: (user: User | null) => void;
+  googleLogin: () => boolean;
 }
 
-const AuthContext = createContext<AuthContextType | null>(null);
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const AUTH_STORAGE_KEY = 'sword_auth_user';
-
-// Admin credentials
+const STORAGE_KEY = 'sword_auth_user';
 const ADMIN_USERNAME = 'ohmnam';
 const ADMIN_PASSWORD = '9769610205';
 
@@ -37,85 +42,107 @@ const ADMIN_USER: User = {
   avatar: 'https://ui-avatars.com/api/?name=Priyank+Joshi&background=FFD700&color=000&size=128',
 };
 
-function loadStoredUser(): User | null {
+function saveStoredUser(user: User | null) {
   try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw) as User;
-  } catch { return null; }
+    if (user) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+    } else {
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  } catch {
+    // noop
+  }
 }
 
-function saveStoredUser(user: User | null): void {
+function loadStoredUser(): User | null {
   try {
-    if (user) localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
-    else localStorage.removeItem(AUTH_STORAGE_KEY);
-  } catch { /* noop */ }
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUserState] = useState<User | null>(loadStoredUser);
-  const isAuthenticated = user !== null;
-  const isAdmin = user?.role === 'admin';
+  const [user, setUserState] = useState<User | null>(null);
+  const [authReady, setAuthReady] = useState(false);
 
-  // Persist user to localStorage on every change
-  const setUser = useCallback((newUser: User | null) => {
-    setUserState(newUser);
-    saveStoredUser(newUser);
+  // Hydrate auth state from localStorage on mount
+  useEffect(() => {
+    const stored = loadStoredUser();
+    if (stored) {
+      setUserState(stored);
+    }
+    setAuthReady(true);
   }, []);
 
+  // Debug: log user changes
   useEffect(() => {
-    // Ensure admin user always has correct credentials
-    if (user?.role === 'admin') {
-      saveStoredUser(user);
-    }
+    console.log('[Auth] User updated:', user);
   }, [user]);
 
-  const login = useCallback((email: string, password: string) => {
-    const trimmedInput = email.trim();
-    const trimmedPassword = password.trim();
+  // IMPORTANT: No useCallback — direct function to avoid stale closure
+  const setUser = (newUser: User | null) => {
+    setUserState(newUser);
+    saveStoredUser(newUser);
+  };
 
-    if (!trimmedInput || !trimmedPassword) {
+  const login = async (
+    username: string,
+    password: string
+  ): Promise<boolean> => {
+    try {
+      const input = username.trim();
+      const pass = password.trim();
+
+      if (!input || !pass) return false;
+
+      // Admin login
+      if (input === ADMIN_USERNAME && pass === ADMIN_PASSWORD) {
+        setUser(ADMIN_USER);
+        return true;
+      }
+
+      // Admin email login
+      if (input.toLowerCase() === 'admin@sword.com' && pass === ADMIN_PASSWORD) {
+        setUser(ADMIN_USER);
+        return true;
+      }
+
+      // Customer login: any email + 6+ char password
+      if (pass.length >= 6) {
+        const namePart = input.split('@')[0];
+        const displayName = namePart
+          .split(/[._-]/)
+          .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(' ');
+
+        const customer: User = {
+          id: `user-${Date.now()}`,
+          name: displayName || 'Customer',
+          email: input.includes('@') ? input.toLowerCase() : `${input}@sword.com`,
+          phone: '',
+          role: 'customer',
+          avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName || 'Customer')}&background=1a365d&color=fff&size=128`,
+        };
+
+        setUser(customer);
+        return true;
+      }
+
+      return false;
+    } catch (err) {
+      console.error('[Auth] Login error:', err);
       return false;
     }
+  };
 
-    // Admin login: ohmnam / 9769610205
-    if (trimmedInput === ADMIN_USERNAME && trimmedPassword === ADMIN_PASSWORD) {
-      setUser(ADMIN_USER);
-      return true;
-    }
+  const logout = () => {
+    setUser(null);
+  };
 
-    if (trimmedInput.toLowerCase() === 'admin@sword.com' && trimmedPassword === ADMIN_PASSWORD) {
-      setUser(ADMIN_USER);
-      return true;
-    }
-
-    // Customer login - any email + 6+ char password
-    if (trimmedPassword.length < 6) {
-      return false;
-    }
-
-    const namePart = trimmedInput.split('@')[0];
-    const displayName = namePart
-      .split(/[._-]/)
-      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-      .join(' ');
-
-    setUser({
-      id: `user-${Date.now()}`,
-      name: displayName || 'Customer',
-      email: trimmedInput.includes('@') ? trimmedInput.toLowerCase() : `${trimmedInput}@sword.com`,
-      phone: '',
-      role: 'customer',
-      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName || 'Customer')}&background=1a365d&color=fff&size=128`,
-    });
-    return true;
-  }, []);
-
-  // Google Sign-In - simulates Google OAuth flow
-  // In production, replace with actual Firebase Auth or Google Identity Services
-  const googleLogin = useCallback(() => {
-    // Generate a demo Google user
-    // In production: use Firebase Auth signInWithPopup or Google Identity Services
+  // Google Sign-In (demo)
+  const googleLogin = (): boolean => {
     const googleNames = ['Raj Patel', 'Anita Sharma', 'Vikram Mehta', 'Neha Gupta'];
     const randomName = googleNames[Math.floor(Math.random() * googleNames.length)];
     const emailSlug = randomName.toLowerCase().replace(' ', '.');
@@ -129,47 +156,35 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(randomName)}&background=4285F4&color=fff&size=128`,
     });
     return true;
-  }, []);
-
-  const logout = useCallback(() => {
-    setUser(null);
-  }, []);
-
-  const register = useCallback((name: string, email: string, phone: string, password: string) => {
-    if (!name || !email || !phone || !password || password.length < 6) {
-      return false;
-    }
-    setUser({
-      id: `user-${Date.now()}`,
-      name,
-      email: email.toLowerCase().trim(),
-      phone,
-      role: 'customer',
-      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=1a365d&color=fff&size=128`,
-    });
-    return true;
-  }, []);
+  };
 
   const value = useMemo(
     () => ({
-      isAuthenticated,
       user,
-      isAdmin,
+      isAuthenticated: !!user,
+      isAdmin: user?.role === 'admin',
+      authReady,
       login,
-      googleLogin,
       logout,
-      register,
+      setUser,
+      googleLogin,
     }),
-    [isAuthenticated, user, isAdmin, login, googleLogin, logout, register]
+    [user, authReady]
   );
 
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
   const context = useContext(AuthContext);
+
   if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error('useAuth must be used within AuthProvider');
   }
+
   return context;
 }

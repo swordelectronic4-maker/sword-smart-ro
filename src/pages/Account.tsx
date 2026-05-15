@@ -169,7 +169,7 @@ export default function Account() {
   const [regPassword, setRegPassword] = useState('');
   const [regError, setRegError] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
     if (!loginEmail.trim() || !loginPassword.trim()) {
@@ -180,13 +180,17 @@ export default function Account() {
       setLoginError('Password must be at least 6 characters');
       return;
     }
-    const success = login(loginEmail, loginPassword);
-    if (!success) {
-      setLoginError('Invalid credentials');
+    try {
+      const success = await login(loginEmail, loginPassword);
+      if (!success) {
+        setLoginError('Invalid credentials');
+      }
+    } catch {
+      setLoginError('Login failed. Please try again.');
     }
   };
 
-  const handleRegister = (e: React.FormEvent) => {
+  const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegError('');
     if (!regName.trim() || !regEmail.trim() || !regPhone.trim() || !regPassword.trim()) {
@@ -197,14 +201,15 @@ export default function Account() {
       setRegError('Password must be at least 6 characters');
       return;
     }
-    // Use the login function to also register (our AuthContext handles both)
-    const success = login(regEmail, regPassword);
-    if (success) {
-      // If register mode, just log them in with the provided email
-      // In a real app, you'd have a separate register function
-      setLoginMode('login');
-    } else {
-      setRegError('Registration failed');
+    try {
+      const success = await login(regEmail, regPassword);
+      if (success) {
+        setLoginMode('login');
+      } else {
+        setRegError('Registration failed');
+      }
+    } catch {
+      setRegError('Registration failed. Please try again.');
     }
   };
 

@@ -1,141 +1,128 @@
 /**
  * Supabase Client — SWORD Smart Water
- * FULL ACCESS — Uses service_role key for complete CRUD
  * 
- * Tables: products, orders, users, coupons, leads, settings,
- *         subscriptions, cms_pages, banners, order_items, activity_logs
+ * Uses ANON KEY only in the browser.
+ * Service role key has been REMOVED for security.
+ * Admin operations go through Supabase REST API or Edge Functions.
+ * 
+ * To enable write operations, set up Supabase Edge Functions
+ * or Row Level Security policies in the Supabase dashboard.
  */
 
 import { createClient } from '@supabase/supabase-js';
 
-// ─── Supabase Config ────────────────────────────────────────
+// ─── Supabase Config (public-safe) ────────────────────────
 const SUPABASE_URL = 'https://feqqdftjmsgdmxjlexzw.supabase.co';
 
-// Service role key — full database access (bypasses RLS)
-const SERVICE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZlcXFkZnRqbXNnZG14amxleHp3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODc4ODQwMCwiZXhwIjoyMDk0MzY0NDAwfQ.rH9V52pvulccqgFytrM6vt9lNE1NtqJTGCzE63vy8wE';
-
-// Anon key for public reads (fallback)
+// Anon key (safe for browser — read-only by default)
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZlcXFkZnRqbXNnZG14amxleHp3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg3ODg0MDAsImV4cCI6MjA5NDM2NDQwMH0.8wawfVcJO3LchDaTvBgKdyil65l3XLsf4WZhQ0oPKaA';
 
-// Use service_role for full access
-export const supabase = createClient(SUPABASE_URL, SERVICE_KEY, {
-  auth: { autoRefreshToken: false, persistSession: false },
-  db: { schema: 'public' },
-  global: { headers: { 'X-Client-Info': 'sword-admin' } },
-});
+// ─── IMPORTANT: Service Role Key Removed ──────────────────
+// The service_role key was here previously — it has been removed
+// because it gives FULL DATABASE ACCESS and bypasses RLS.
+// 
+// For admin CRUD operations, use one of:
+//   1. Supabase Edge Functions (server-side)
+//   2. Supabase Auth + RLS policies
+//   3. Vercel serverless functions
+//
+// Service role key location: Supabase Dashboard → Project Settings → API
 
-// Public client for anon reads (if needed)
-export const supabasePublic = createClient(SUPABASE_URL, ANON_KEY, {
-  auth: { autoRefreshToken: true, persistSession: true },
-  db: { schema: 'public' },
+export const supabase = createClient(SUPABASE_URL, ANON_KEY, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+  },
+  db: {
+    schema: 'public',
+  },
 });
 
 // ═════════════════════════════════════════════════════════════
-// PRODUCTS
+// PRODUCTS (read-only via anon key)
 // ═════════════════════════════════════════════════════════════
 export async function fetchProducts() {
-  const { data, error } = await supabase.from('products').select('*').order('created_at', { ascending: false });
-  if (error) { console.error('[Supabase] fetchProducts error:', error); return []; }
-  return data || [];
-}
-
-export async function insertProduct(product: Record<string, any>) {
-  const { data, error } = await supabase.from('products').insert([product]).select();
-  if (error) throw error;
-  return data;
-}
-
-export async function updateProductDB(id: string, updates: Record<string, any>) {
-  const { error } = await supabase.from('products').update(updates).eq('id', id);
-  if (error) throw error;
-}
-
-export async function deleteProductDB(id: string) {
-  const { error } = await supabase.from('products').delete().eq('id', id);
-  if (error) throw error;
+  try {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .order('updated_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    console.error('[Supabase] fetchProducts error:', e);
+    return [];
+  }
 }
 
 // ═════════════════════════════════════════════════════════════
-// ORDERS
+// ORDERS (read-only via anon key)
 // ═════════════════════════════════════════════════════════════
 export async function fetchOrders() {
-  const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
-  if (error) { console.error('[Supabase] fetchOrders error:', error); return []; }
-  return data || [];
-}
-
-export async function insertOrder(order: Record<string, any>) {
-  const { data, error } = await supabase.from('orders').insert([order]).select();
-  if (error) throw error;
-  return data;
-}
-
-export async function updateOrderDB(id: string, updates: Record<string, any>) {
-  const { error } = await supabase.from('orders').update(updates).eq('id', id);
-  if (error) throw error;
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    console.error('[Supabase] fetchOrders error:', e);
+    return [];
+  }
 }
 
 // ═════════════════════════════════════════════════════════════
-// USERS
+// USERS (read-only via anon key)
 // ═════════════════════════════════════════════════════════════
 export async function fetchUsers() {
-  const { data, error } = await supabase.from('users').select('*').order('created_at', { ascending: false });
-  if (error) { console.error('[Supabase] fetchUsers error:', error); return []; }
-  return data || [];
-}
-
-export async function insertUser(user: Record<string, any>) {
-  const { data, error } = await supabase.from('users').insert([user]).select();
-  if (error) throw error;
-  return data;
+  try {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    console.error('[Supabase] fetchUsers error:', e);
+    return [];
+  }
 }
 
 // ═════════════════════════════════════════════════════════════
-// LEADS
+// LEADS (write allowed via RLS policy or Edge Function)
 // ═════════════════════════════════════════════════════════════
-export async function fetchLeads() {
-  const { data, error } = await supabase.from('leads').select('*').order('created_at', { ascending: false });
-  if (error) { console.error('[Supabase] fetchLeads error:', error); return []; }
-  return data || [];
-}
-
 export async function insertLead(lead: Record<string, any>) {
-  const { data, error } = await supabase.from('leads').insert([lead]).select();
-  if (error) throw error;
-  return data;
+  try {
+    const { data, error } = await supabase.from('leads').insert([lead]).select();
+    if (error) throw error;
+    return data;
+  } catch (e) {
+    console.warn('[Supabase] insertLead failed (may need RLS policy):', e);
+    // Fallback: store in localStorage
+    const leads = JSON.parse(localStorage.getItem('sword_interested_customers') || '[]');
+    leads.push({ ...lead, id: `lead_${Date.now()}`, timestamp: new Date().toISOString() });
+    localStorage.setItem('sword_interested_customers', JSON.stringify(leads));
+    return [lead];
+  }
 }
 
 // ═════════════════════════════════════════════════════════════
-// COUPONS
+// COUPONS (read-only)
 // ═════════════════════════════════════════════════════════════
 export async function fetchCoupons() {
-  const { data, error } = await supabase.from('coupons').select('*').order('created_at', { ascending: false });
-  if (error) { console.error('[Supabase] fetchCoupons error:', error); return []; }
-  return data || [];
-}
-
-export async function upsertCoupon(coupon: Record<string, any>) {
-  const { data, error } = await supabase.from('coupons').upsert([coupon]).select();
-  if (error) throw error;
-  return data;
-}
-
-// ═════════════════════════════════════════════════════════════
-// SETTINGS
-// ═════════════════════════════════════════════════════════════
-export async function fetchSettings() {
-  const { data, error } = await supabase.from('settings').select('*');
-  if (error) { console.error('[Supabase] fetchSettings error:', error); return []; }
-  return data || [];
-}
-
-export async function upsertSetting(key: string, value: string) {
-  const { error } = await supabase.from('settings').upsert({ key, value });
-  if (error) throw error;
+  try {
+    const { data, error } = await supabase.from('coupons').select('*');
+    if (error) throw error;
+    return data || [];
+  } catch (e) {
+    console.error('[Supabase] fetchCoupons error:', e);
+    return [];
+  }
 }
 
 // ═════════════════════════════════════════════════════════════
-// HELPERS
+// CONNECTION CHECK
 // ═════════════════════════════════════════════════════════════
 export async function checkSupabaseConnection(): Promise<boolean> {
   try {
@@ -144,18 +131,4 @@ export async function checkSupabaseConnection(): Promise<boolean> {
   } catch { return false; }
 }
 
-// Check write access
-export async function checkSupabaseWrite(): Promise<boolean> {
-  try {
-    const testId = 'test_' + Date.now();
-    const { error: insertErr } = await supabase.from('leads').insert([{
-      id: testId, name: 'Test', email: 'test@test.com', phone: '0000000000',
-      source: 'test', status: 'new', created_at: new Date().toISOString(),
-    }]);
-    if (insertErr) return false;
-    await supabase.from('leads').delete().eq('id', testId);
-    return true;
-  } catch { return false; }
-}
-
-console.log('[Supabase] Client initialized with service_role');
+console.log('[Supabase] Client initialized (anon key only)');

@@ -9,18 +9,11 @@
  */
 
 import {
-  supabase,
   fetchProducts as fetchProductsDB,
   fetchOrders as fetchOrdersDB,
   fetchUsers as fetchUsersDB,
   fetchCoupons as fetchCouponsDB,
-  fetchLeads as fetchLeadsDB,
-  insertOrder as insertOrderDB,
   insertLead as insertLeadDB,
-  updateOrderDB,
-  updateProductDB,
-  deleteProductDB,
-  insertProduct as insertProductDB,
   checkSupabaseConnection,
 } from './supabase';
 
@@ -176,9 +169,12 @@ export async function saveOrder(order: any): Promise<void> {
       shipping: (order.shipping || 0) * 100,
       grand_total: (order.grandTotal || 0) * 100,
     };
-    await insertOrderDB(dbOrder);
+    // Supabase write disabled (service_role key removed for security)
+    // Orders saved to localStorage only
+    console.log('[SupabaseData] Order saved to localStorage');
+    saveLocalOrder(order);
   } catch (e) {
-    console.warn('[SupabaseData] saveOrder failed, using localStorage:', e);
+    console.warn('[SupabaseData] saveOrder failed:', e);
     saveLocalOrder(order);
   }
 }
@@ -264,18 +260,31 @@ export async function saveLead(lead: any): Promise<void> {
 // ═════════════════════════════════════════════════════════════
 // ADMIN CRUD OPERATIONS
 // ═════════════════════════════════════════════════════════════
+// Admin CRUD operations — localStorage only (Supabase service_role removed for security)
+// For production: move these to Supabase Edge Functions or serverless API
+
+function loadLocalProducts() {
+  try { return JSON.parse(localStorage.getItem('sword_products') || '[]'); } catch { return []; }
+}
+function saveLocalProducts(products: any[]) {
+  localStorage.setItem('sword_products', JSON.stringify(products));
+}
+function loadLocalOrders() {
+  try { return JSON.parse(localStorage.getItem('sword_orders') || '[]'); } catch { return []; }
+}
+function saveLocalOrders(orders: any[]) {
+  localStorage.setItem('sword_orders', JSON.stringify(orders));
+}
+
 export async function adminUpdateProduct(id: string, updates: Partial<any>): Promise<void> {
   try {
-    const dbUpdates: Record<string, any> = {};
-    if (updates.name !== undefined) dbUpdates.name = updates.name;
-    if (updates.price !== undefined) dbUpdates.price = updates.price * 100; // rupees → paise
-    if (updates.stock !== undefined) dbUpdates.stock = updates.stock;
-    if (updates.status !== undefined) dbUpdates.status = updates.status;
-    if (updates.visible !== undefined) dbUpdates.status = updates.visible ? 'active' : 'inactive';
-    if (updates.description !== undefined) dbUpdates.description = updates.description;
-    dbUpdates.updated_at = new Date().toISOString();
-    
-    await updateProductDB(id, dbUpdates);
+    const products = loadLocalProducts();
+    const idx = products.findIndex((p: any) => p.id === id);
+    if (idx >= 0) {
+      products[idx] = { ...products[idx], ...updates };
+      saveLocalProducts(products);
+      console.log('[Admin] Product updated:', id);
+    }
   } catch (e) {
     console.warn('[SupabaseData] adminUpdateProduct failed:', e);
     throw e;
@@ -284,7 +293,9 @@ export async function adminUpdateProduct(id: string, updates: Partial<any>): Pro
 
 export async function adminDeleteProduct(id: string): Promise<void> {
   try {
-    await deleteProductDB(id);
+    const products = loadLocalProducts();
+    saveLocalProducts(products.filter((p: any) => p.id !== id));
+    console.log('[Admin] Product deleted:', id);
   } catch (e) {
     console.warn('[SupabaseData] adminDeleteProduct failed:', e);
     throw e;
@@ -293,24 +304,28 @@ export async function adminDeleteProduct(id: string): Promise<void> {
 
 export async function adminAddProduct(product: any): Promise<void> {
   try {
-    const dbProduct = {
-      name: product.name,
-      slug: product.slug || product.name.toLowerCase().replace(/\s+/g, '-'),
+    const products = loadLocalProducts();
+    const newProduct = {
+      id: `p_${Date.now()}`,
+      name: product.name || 'New Product',
+      price: Number(product.price) || 0,
+      originalPrice: Number(product.price) * 1.3 || 0,
+      category: product.category || 'General',
+      rating: 4.5,
+      reviews: 0,
+      image: '/assets/product-hero.png',
+      description: product.description || '',
+      specs: {},
+      inStock: true,
+      stock: Number(product.stock) || 0,
+      visible: true,
+      slug: (product.name || 'product').toLowerCase().replace(/\s+/g, '-'),
       sku: product.sku || `SWORD-${Date.now()}`,
-      description: product.description,
-      short_description: product.description?.slice(0, 100),
-      price: (product.price || 0) * 100,
-      cost_price: (product.price || 0) * 60, // 60% cost
-      stock: product.stock || 0,
-      low_stock_threshold: 5,
-      weight: product.weight || 0,
-      length: 0, width: 0, height: 0,
-      category_id: 'cat-1',
-      brand_id: 'brand-1',
-      status: product.visible !== false ? 'active' : 'inactive',
-      featured: product.featured || false,
+      featured: false,
     };
-    await insertProductDB(dbProduct);
+    products.push(newProduct);
+    saveLocalProducts(products);
+    console.log('[Admin] Product added:', newProduct.id);
   } catch (e) {
     console.warn('[SupabaseData] adminAddProduct failed:', e);
     throw e;
@@ -319,15 +334,13 @@ export async function adminAddProduct(product: any): Promise<void> {
 
 export async function adminUpdateOrder(id: string, updates: Partial<any>): Promise<void> {
   try {
-    const dbUpdates: Record<string, any> = {};
-    if (updates.status !== undefined) dbUpdates.order_status = updates.status;
-    if (updates.paymentStatus !== undefined) dbUpdates.payment_status = updates.paymentStatus;
-    if (updates.trackingNumber !== undefined) dbUpdates.tracking_number = updates.trackingNumber;
-    if (updates.carrier !== undefined) dbUpdates.courier_name = updates.carrier;
-    if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
-    dbUpdates.updated_at = new Date().toISOString();
-    
-    await updateOrderDB(id, dbUpdates);
+    const orders = loadLocalOrders();
+    const idx = orders.findIndex((o: any) => o.id === id);
+    if (idx >= 0) {
+      orders[idx] = { ...orders[idx], ...updates };
+      saveLocalOrders(orders);
+      console.log('[Admin] Order updated:', id);
+    }
   } catch (e) {
     console.warn('[SupabaseData] adminUpdateOrder failed:', e);
     throw e;
