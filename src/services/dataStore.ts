@@ -84,8 +84,31 @@ export function seedDatabase(): void {
   if (!localStorage.getItem(KEYS.products)) {
     save(KEYS.products, defaultProducts.map(p => ({
       ...p,
-      stock: Math.floor(Math.random() * 50) + 10,
+      // New fields with defaults
+      mrp: p.originalPrice || Math.round(p.price * 1.4),
+      price: p.price,
+      comparePrice: p.originalPrice || p.price,
+      costPrice: Math.round(p.price * 0.5),
+      gstRate: 18,
+      gstInclusive: true,
+      hsnCode: '8421',
+      slug: p.id,
+      sku: `SWR-${p.id.toUpperCase().replace(/-/g, '')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+      brand: 'SWORD',
+      tags: [p.category, 'water purifier', 'smart'],
+      images: [p.image || '/assets/product-hero.png'],
+      shortDescription: p.description?.slice(0, 120) || '',
+      lowStockThreshold: 5,
+      allowBackorder: false,
+      weightKg: 12.5,
+      isDraft: false,
       visible: true,
+      featured: false,
+      seoTitle: p.name,
+      seoDescription: p.description?.slice(0, 160) || '',
+      stock: Math.floor(Math.random() * 50) + 10,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })));
   }
 
@@ -133,7 +156,7 @@ export interface LiveProduct {
   id: string;
   name: string;
   price: number;
-  originalPrice: number;
+  originalPrice?: number;   // Backward compat - use mrp/comparePrice going forward
   category: string;
   rating: number;
   reviews: number;
@@ -143,9 +166,30 @@ export interface LiveProduct {
   inStock: boolean;
   stock: number;
   visible: boolean;
+  // NEW FIELDS (all optional for backward compatibility)
   slug?: string;
   sku?: string;
+  mrp?: number;              // Maximum Retail Price (strikethrough)
+  comparePrice?: number;     // Compare at price
+  costPrice?: number;        // Cost price
+  gstRate?: number;          // GST % (default 18)
+  gstInclusive?: boolean;    // Price includes GST?
+  hsnCode?: string;
+  brand?: string;
+  tags?: string[];
+  images?: string[];
+  shortDescription?: string;
+  lowStockThreshold?: number;
+  allowBackorder?: boolean;
+  weightKg?: number;
+  isDraft?: boolean;
   featured?: boolean;
+  seoTitle?: string;
+  seoDescription?: string;
+  offerStartDate?: string;
+  offerEndDate?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export function getProducts(): LiveProduct[] {
