@@ -255,7 +255,42 @@ export interface LiveOrder {
 }
 
 export function getOrders(): LiveOrder[] {
-  return load<LiveOrder[]>(KEYS.orders, []);
+  const raw = load<any[]>(KEYS.orders, []);
+  // Normalize from AdminOrder shape to LiveOrder shape
+  return raw.map(o => ({
+    id: o.id || '',
+    orderNumber: o.orderNumber || o.id,
+    customer: o.customer || 'Unknown',
+    customerName: o.customerName || o.customer,
+    customerEmail: o.customerEmail || o.email,
+    customerPhone: o.customerPhone || o.phone,
+    email: o.email || '',
+    phone: o.phone || '',
+    address: o.address || '',
+    city: o.city || '',
+    state: o.state || '',
+    pincode: o.pincode || '',
+    items: (o.items || []).map((it: any) => ({
+      productId: it.productId || '',
+      productName: it.productName || it.name || 'Product',
+      image: it.image || '/assets/product-hero.png',
+      price: it.price || 0,
+      quantity: it.quantity || it.qty || 1,
+    })),
+    status: o.status || 'pending',
+    paymentStatus: o.paymentStatus || o.payment_status || 'pending',
+    paymentMethod: o.paymentMethod || o.payment_method || 'UPI',
+    subtotal: o.subtotal || 0,
+    cgst: o.cgst || 0,
+    sgst: o.sgst || 0,
+    shipping: o.shipping || 0,
+    grandTotal: o.grandTotal || o.grand_total || o.subtotal || 0,
+    createdAt: o.createdAt || o.placedAt || new Date().toISOString(),
+    updatedAt: o.updatedAt || o.updated_at,
+    notes: o.notes || '',
+    trackingNumber: o.trackingNumber || o.trackingId || '',
+    carrier: o.carrier || '',
+  }));
 }
 
 export async function getOrdersAsync(): Promise<LiveOrder[]> {
@@ -316,7 +351,18 @@ export interface LiveUser {
 }
 
 export function getUsers(): LiveUser[] {
-  return load<LiveUser[]>(KEYS.users, []);
+  const raw = load<any[]>(KEYS.users, []);
+  // Normalize from AdminUser shape to LiveUser shape
+  return raw.map(u => ({
+    id: u.id || '',
+    name: u.name || 'Unknown',
+    email: u.email || '',
+    phone: u.phone || '',
+    role: u.role || 'customer',
+    status: u.status || 'active',
+    joinDate: u.joinDate || u.joined || new Date().toISOString(),
+    avatar: u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.name || 'User')}&background=1a365d&color=fff`,
+  }));
 }
 
 export async function getUsersAsync(): Promise<LiveUser[]> {
