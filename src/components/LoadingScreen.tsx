@@ -45,7 +45,7 @@ export default function LoadingScreen({ onComplete }: LoadingScreenProps) {
           transition={{ duration: 0.5 }}
         >
           <motion.img
-            src="/logo-gold.png"
+            src="/assets/logo.png"
             alt="SWORD"
             className="w-[120px] h-auto mb-4"
             initial={{ opacity: 0, scale: 0.8 }}

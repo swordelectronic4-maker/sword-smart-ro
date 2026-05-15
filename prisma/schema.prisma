@@ -1,0 +1,373 @@
+// SWORD Smart RO — Enterprise Database Schema
+// Deploy with: npx prisma migrate dev --name init
+// Then: npx prisma db seed
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL") // For Neon pooled connection
+}
+
+// ─── Users ─────────────────────────────────────────────
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String?  @unique
+  phone     String?  @unique
+  password  String?  // Nullable for OAuth users
+  role      UserRole @default(customer)
+  provider  AuthProvider @default(email)
+  avatar    String?
+  status    UserStatus @default(active)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  orders    Order[]
+  addresses Address[]
+  
+  @@index([email])
+  @@index([phone])
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+enum UserRole {
+  super_admin
+  admin
+  manager
+  customer
+}
+
+enum UserStatus {
+  active
+  inactive
+  suspended
+}
+
+enum AuthProvider {
+  email
+  google
+  phone
+}
+
+// ─── Addresses ─────────────────────────────────────────
+model Address {
+  id        String  @id @default(cuid())
+  userId    String
+  label     String // home, work, etc.
+  fullName  String
+  phone     String
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  pincode   String
+  landmark  String?
+  isDefault Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@map("addresses")
+}
+
+// ─── Categories ────────────────────────────────────────
+model Category {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  parentId    String?
+  description String?
+  image       String?
+  status      Status    @default(active)
+  sortOrder   Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // Self-relation for parent/child
+  parent   Category?  @relation("CategoryParent", fields: [parentId], references: [id])
+  children Category[] @relation("CategoryParent")
+  products Product[]
+  
+  @@index([slug])
+  @@index([status])
+  @@map("categories")
+}
+
+// ─── Brands ────────────────────────────────────────────
+model Brand {
+  id      String   @id @default(cuid())
+  name    String
+  slug    String   @unique
+  logo    String?
+  status  Status   @default(active)
+  products Product[]
+  
+  @@index([slug])
+  @@map("brands")
+}
+
+// ─── Products ──────────────────────────────────────────
+model Product {
+  id              String   @id @default(cuid())
+  name            String
+  slug            String   @unique
+  sku             String   @unique
+  description     String   @db.Text
+  shortDescription String?
+  
+  // Pricing
+  price        Int     // in paise (₹1 = 100)
+  salePrice    Int?    // in paise
+  costPrice    Int?    // in paise
+  
+  // Inventory
+  stock       Int       @default(0)
+  lowStockThreshold Int   @default(5)
+  weight      Float?    // in kg
+  length      Float?    // in cm
+  width       Float?    // in cm
+  height      Float?    // in cm
+  
+  // Relations
+  categoryId String?
+  brandId    String?
+  category   Category? @relation(fields: [categoryId], references: [id])
+  brand      Brand?    @relation(fields: [brandId], references: [id])
+  
+  // Status & SEO
+  status          Status @default(active)
+  featured        Boolean @default(false)
+  seoTitle        String?
+  seoDescription  String?
+  
+  // Relations
+  images    ProductImage[]
+  orderItems OrderItem[]
+  reviews   Review[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@index([slug])
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([status])
+  @@index([featured])
+  @@map("products")
+}
+
+// ─── Product Images ────────────────────────────────────
+model ProductImage {
+  id        String @id @default(cuid())
+  productId String
+  url       String
+  alt       String?
+  sortOrder Int    @default(0)
+  
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@index([productId])
+  @@map("product_images")
+}
+
+// ─── Reviews ───────────────────────────────────────────
+model Review {
+  id        String  @id @default(cuid())
+  productId String
+  userName  String
+  userEmail String
+  rating    Int     // 1-5
+  comment   String  @db.Text
+  verified  Boolean @default(false)
+  createdAt DateTime @default(now())
+  
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  
+  @@index([productId])
+  @@map("reviews")
+}
+
+// ─── Orders ────────────────────────────────────────────
+model Order {
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique // SWORD-XXXXX
+  
+  // Customer
+  userId          String?
+  guestEmail      String?
+  guestPhone      String?
+  guestName       String?
+  
+  // Financials
+  subtotal        Int         // in paise
+  discount        Int         @default(0)
+  cgst            Int         @default(0)
+  sgst            Int         @default(0)
+  shipping        Int         @default(0)
+  grandTotal      Int         // in paise
+  
+  // Payment
+  paymentMethod   String
+  paymentStatus   PaymentStatus @default(pending)
+  razorpayOrderId String?
+  razorpayPaymentId String?
+  
+  // Shipping
+  shippingAddress Json // {name, line1, line2, city, state, pincode, phone}
+  trackingNumber  String?
+  courierName     String?
+  
+  // Status
+  orderStatus     OrderStatus @default(placed)
+  notes           String?
+  
+  // Relations
+  items     OrderItem[]
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  user User? @relation(fields: [userId], references: [id])
+  
+  @@index([userId])
+  @@index([orderStatus])
+  @@index([paymentStatus])
+  @@index([orderNumber])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  placed
+  processing
+  shipped
+  delivered
+  cancelled
+  refunded
+}
+
+enum PaymentStatus {
+  pending
+  paid
+  failed
+  refunded
+}
+
+// ─── Order Items ───────────────────────────────────────
+model OrderItem {
+  id        String @id @default(cuid())
+  orderId   String
+  productId String
+  name      String // snapshot of product name at time of order
+  image     String // snapshot of product image
+  quantity  Int
+  price     Int    // in paise (price at time of order)
+  
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+  
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ─── Coupons ───────────────────────────────────────────
+model Coupon {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  type        DiscountType @default(percent)
+  value       Int      // percent or fixed amount in paise
+  minOrder    Int      @default(0) // in paise
+  maxDiscount Int?     // in paise
+  usageLimit  Int      @default(100)
+  usedCount   Int      @default(0)
+  expiryDate  DateTime
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  
+  @@index([code])
+  @@map("coupons")
+}
+
+enum DiscountType {
+  percent
+  fixed
+  free_shipping
+}
+
+// ─── CMS Pages ─────────────────────────────────────────
+model Page {
+  id              String   @id @default(cuid())
+  title           String
+  slug            String   @unique
+  content         String   @db.Text
+  metaTitle       String?
+  metaDescription String?
+  status          Status   @default(active)
+  sortOrder       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  
+  @@index([slug])
+  @@map("pages")
+}
+
+// ─── Banners ───────────────────────────────────────────
+model Banner {
+  id       String @id @default(cuid())
+  title    String
+  image    String
+  link     String?
+  position String @default("home_hero") // home_hero, home_featured, etc.
+  status   Status @default(active)
+  sortOrder Int   @default(0)
+  createdAt DateTime @default(now())
+  
+  @@index([position])
+  @@map("banners")
+}
+
+// ─── Settings ──────────────────────────────────────────
+model Setting {
+  id    String @id @default(cuid())
+  key   String @unique
+  value String
+  type  String @default("string") // string, number, boolean, json
+  label String?
+  group String @default("general") // general, payment, shipping, seo, social
+  
+  @@index([key])
+  @@index([group])
+  @@map("settings")
+}
+
+// ─── Activity Logs ─────────────────────────────────────
+model ActivityLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  userName  String?
+  action    String   // create, update, delete, login, etc.
+  entity    String   // product, order, user, etc.
+  entityId  String?
+  details   String?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
+  @@map("activity_logs")
+}
+
+enum Status {
+  active
+  inactive
+  draft
+}

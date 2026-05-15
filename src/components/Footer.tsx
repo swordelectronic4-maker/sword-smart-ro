@@ -32,7 +32,7 @@ export default function Footer() {
           {/* Brand */}
           <div>
             <img
-              src="/logo-gold.png"
+              src="/assets/logo.png"
               alt="SWORD"
               className="h-[32px] w-auto object-contain mb-4"
             />

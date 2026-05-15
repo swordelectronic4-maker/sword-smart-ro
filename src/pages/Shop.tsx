@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, ShoppingCart, Star, SlidersHorizontal, Search, X } from 'lucide-react';
-import { products, type Product } from '@/data/products';
+import { Heart, ShoppingCart, Star, SlidersHorizontal, Search, X, Eye } from 'lucide-react';
+import { products as getProductList, type Product } from '@/data/products';
 import { useCart } from '@/context/CartContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,11 +24,22 @@ function formatPrice(price: number) {
   }).format(price);
 }
 
+function getStockBadge(stock: number, inStock: boolean) {
+  if (!inStock || stock === 0) {
+    return { label: 'Out of Stock', className: 'bg-red-500/20 text-red-400 border-red-500/30' };
+  }
+  if (stock <= 20) {
+    return { label: 'Low Stock', className: 'bg-orange-500/20 text-orange-400 border-orange-500/30' };
+  }
+  return { label: 'In Stock', className: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' };
+}
+
 function ProductCard({ product, index }: { product: Product; index: number }) {
   const navigate = useNavigate();
   const { addToCart, toggleWishlist, isInWishlist } = useCart();
   const wishlisted = isInWishlist(product.id);
   const discount = Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100);
+  const stockBadge = getStockBadge(product.stock, product.inStock);
 
   return (
     <motion.div
@@ -60,15 +71,31 @@ function ProductCard({ product, index }: { product: Product; index: number }) {
         <img
           src={product.image}
           alt={product.name}
-          className="w-full h-full object-contain p-6 transition-transform duration-500 group-hover:scale-105"
+          className="w-full h-full object-contain p-4 transition-transform duration-500 group-hover:scale-105"
           loading="lazy"
         />
+        {/* Quick View overlay on hover */}
+        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+          <Button
+            onClick={(e) => { e.stopPropagation(); navigate(`/product/${product.id}`); }}
+            className="bg-white/10 backdrop-blur-md border border-white/20 text-white hover:bg-[#D4AF37]/20 hover:border-[#D4AF37]/50 rounded-none px-6 py-2.5 text-sm uppercase tracking-wider font-medium transition-all duration-300 transform translate-y-2 group-hover:translate-y-0"
+          >
+            <Eye size={16} className="mr-2" />
+            Quick View
+          </Button>
+        </div>
       </div>
 
       <div className="p-5">
-        <p className="text-[0.6875rem] text-[#A0A0A0] uppercase tracking-[0.08em] mb-1 font-medium">
-          {product.category}
-        </p>
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-[0.6875rem] text-[#A0A0A0] uppercase tracking-[0.08em] font-medium">
+            {product.category}
+          </p>
+          {/* Stock badge */}
+          <span className={`text-[0.625rem] font-medium px-2 py-0.5 border ${stockBadge.className}`}>
+            {stockBadge.label}
+          </span>
+        </div>
         <h3
           className="font-['Playfair_Display'] text-base text-white mb-2 cursor-pointer hover:text-[#D4AF37] transition-colors line-clamp-1"
           onClick={() => navigate(`/product/${product.id}`)}
@@ -89,14 +116,31 @@ function ProductCard({ product, index }: { product: Product; index: number }) {
           <span className="text-[0.75rem] text-[#A0A0A0]">({product.reviews})</span>
         </div>
 
-        <div className="flex items-baseline gap-2 mb-4">
+        <div className="flex items-baseline gap-2 mb-1">
           <span className="text-lg font-semibold text-[#D4AF37] font-['JetBrains_Mono']">
             {formatPrice(product.price)}
           </span>
-          <span className="text-sm text-[#666] line-through">
+          <span className="text-sm text-[#888] line-through decoration-[#666] decoration-1">
             {formatPrice(product.originalPrice)}
           </span>
         </div>
+
+        {/* Stock quantity display */}
+        {product.stock > 0 && product.stock < 20 && (
+          <p className="text-[0.75rem] text-orange-400 mb-3">
+            Only {product.stock} left
+          </p>
+        )}
+        {product.stock >= 20 && (
+          <p className="text-[0.75rem] text-emerald-500/70 mb-3">
+            In Stock
+          </p>
+        )}
+        {product.stock === 0 && (
+          <p className="text-[0.75rem] text-red-400 mb-3">
+            Out of Stock
+          </p>
+        )}
 
         <div className="flex gap-2">
           <Button
@@ -108,7 +152,7 @@ function ProductCard({ product, index }: { product: Product; index: number }) {
                 image: product.image,
               })
             }
-            disabled={!product.inStock}
+            disabled={!product.inStock || product.stock === 0}
             className="flex-1 bg-gradient-to-r from-[#D4AF37] via-[#E8D44D] to-[#D4AF37] text-[#0A0A0A] font-semibold text-[0.75rem] uppercase tracking-[0.05em] h-10 rounded-none hover:shadow-[0_0_30px_rgba(212,175,55,0.3)] hover:scale-[1.02] transition-all duration-300 disabled:opacity-40"
           >
             <ShoppingCart size={14} className="mr-2" />
@@ -121,6 +165,7 @@ function ProductCard({ product, index }: { product: Product; index: number }) {
 }
 
 export default function Shop() {
+  const products = getProductList();
   const [activeCategory, setActiveCategory] = useState('All');
   const [sortBy, setSortBy] = useState('featured');
   const [searchQuery, setSearchQuery] = useState('');
@@ -153,7 +198,7 @@ export default function Shop() {
         filtered.sort((a, b) => a.price - b.price);
         break;
       case 'price-desc':
-        filtered.sort((a, b) => b.price - a.price);
+        filtered.sort((a, b) => b.price - b.price);
         break;
       case 'rating':
         filtered.sort((a, b) => b.rating - a.rating);
@@ -246,7 +291,7 @@ export default function Shop() {
                       className="w-28 h-10 bg-white/5 border-white/10 text-white rounded-none text-sm"
                       placeholder="Min"
                     />
-                    <span className="text-[#666]">—</span>
+                    <span className="text-[#666]">&ndash;</span>
                     <Input
                       type="number"
                       value={priceRange[1]}
@@ -293,7 +338,7 @@ export default function Shop() {
 
         {/* Product Grid */}
         {filteredProducts.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-6">
             {filteredProducts.map((product, i) => (
               <ProductCard key={product.id} product={product} index={i} />
             ))}

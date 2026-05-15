@@ -1,27 +1,30 @@
-export interface Product {
-  id: string;
-  name: string;
-  price: number;
-  originalPrice: number;
-  category: string;
-  rating: number;
-  reviews: number;
-  image: string;
-  description: string;
-  specs: Record<string, string>;
-  inStock: boolean;
+import { getProducts, type LiveProduct } from '@/services/dataStore';
+
+export type Product = LiveProduct;
+
+export function getProductList(): Product[] {
+  return getProducts();
 }
 
-export const products: Product[] = [
+export function getProductById(id: string): Product | undefined {
+  return getProducts().find(p => p.id === id);
+}
+
+// Keep the original defaultProducts array for seeding
+// but export getProducts() as the main way to get live data
+export { getProducts as products };
+
+// Original static product data — used by dataStore for initial seed
+export const defaultProducts: Omit<LiveProduct, 'stock' | 'visible'>[] = [
   {
     id: "sword-smart-ro",
     name: "SWORD Smart RO Purifier",
-    price: 45999,
-    originalPrice: 54999,
+    price: 27999,
+    originalPrice: 34999,
     category: "Purifiers",
     rating: 4.8,
     reviews: 1247,
-    image: "/assets/product-front.png",
+    image: "/assets/product-hero.png",
     description: "India's first AI-powered dual-membrane smart water purifier with NF+RO technology. Save 60% water, retain essential minerals.",
     specs: {
       "Purification Technology": "Dual Membrane NF + RO with AI Switching",
@@ -45,7 +48,7 @@ export const products: Product[] = [
     category: "Filters",
     rating: 4.5,
     reviews: 328,
-    image: "/filter-cartridge.png",
+    image: "/assets/filter-pp.png",
     description: "5-micron sediment filter removes dust, rust, and sand particles. Compatible with all SWORD models.",
     specs: {
       "Filtration Rating": "5 microns",
@@ -63,7 +66,7 @@ export const products: Product[] = [
     category: "Filters",
     rating: 4.6,
     reviews: 256,
-    image: "/filter-cartridge.png",
+    image: "/assets/filter-carbon.png",
     description: "Premium activated carbon removes chlorine, odors, VOCs, and organic compounds for better tasting water.",
     specs: {
       "Contaminant Removal": "Chlorine, VOCs, Odors",
@@ -81,7 +84,7 @@ export const products: Product[] = [
     category: "Membranes",
     rating: 4.7,
     reviews: 189,
-    image: "/filter-cartridge.png",
+    image: "/assets/membrane-ro.png",
     description: "High-performance reverse osmosis membrane with 0.0001 micron filtration. Removes dissolved solids and heavy metals.",
     specs: {
       "Filtration Rating": "0.0001 microns",
@@ -99,7 +102,7 @@ export const products: Product[] = [
     category: "Membranes",
     rating: 4.8,
     reviews: 142,
-    image: "/filter-cartridge.png",
+    image: "/assets/membrane-nf.png",
     description: "Nanofiltration membrane retains essential calcium and magnesium minerals while removing contaminants.",
     specs: {
       "Filtration Rating": "0.001 microns",
@@ -117,7 +120,7 @@ export const products: Product[] = [
     category: "Membranes",
     rating: 4.5,
     reviews: 98,
-    image: "/filter-cartridge.png",
+    image: "/assets/membrane-uf.png",
     description: "Ultrafiltration membrane provides final barrier against bacteria and viruses. 0.01 micron rating.",
     specs: {
       "Filtration Rating": "0.01 microns",
@@ -135,8 +138,8 @@ export const products: Product[] = [
     category: "Filters",
     rating: 4.6,
     reviews: 215,
-    image: "/filter-cartridge.png",
-    description: "Adds essential Ca²⁺ and Mg²⁺ minerals back to purified water for health benefits and better taste.",
+    image: "/assets/filter-mineral.png",
+    description: "Adds essential Ca and Mg minerals back to purified water for health benefits and better taste.",
     specs: {
       "Minerals Added": "Calcium, Magnesium",
       "Filter Life": "12 months",
@@ -153,11 +156,11 @@ export const products: Product[] = [
     category: "Accessories",
     rating: 4.4,
     reviews: 76,
-    image: "/filter-cartridge.png",
+    image: "/assets/tds-sensor.png",
     description: "Real-time TDS monitoring sensor with Wi-Fi connectivity. Monitor water quality from your smartphone.",
     specs: {
       "TDS Range": "0-2000 ppm",
-      "Accuracy": "±2%",
+      "Accuracy": "\u00B12%",
       "Connectivity": "Wi-Fi, Bluetooth",
       "Power": "5V DC",
     },
@@ -171,7 +174,7 @@ export const products: Product[] = [
     category: "Kits",
     rating: 4.7,
     reviews: 534,
-    image: "/filter-cartridge.png",
+    image: "/assets/filter-kit.png",
     description: "Complete annual filter replacement kit including all 14-stage filters. Save 20% compared to individual purchases.",
     specs: {
       "Contains": "All 14-stage filters",
@@ -189,7 +192,7 @@ export const products: Product[] = [
     category: "Services",
     rating: 4.6,
     reviews: 423,
-    image: "/filter-cartridge.png",
+    image: "/assets/amc-service.png",
     description: "Gold AMC includes 2 preventive maintenance visits, filter cleaning, and priority service support.",
     specs: {
       "Visits": "2 per year",
@@ -207,7 +210,7 @@ export const products: Product[] = [
     category: "Services",
     rating: 4.8,
     reviews: 312,
-    image: "/filter-cartridge.png",
+    image: "/assets/amc-service.png",
     description: "Platinum AMC includes 4 visits, all filter replacements, unlimited service calls, and 24/7 priority support.",
     specs: {
       "Visits": "4 per year",
@@ -225,7 +228,7 @@ export const products: Product[] = [
     category: "Accessories",
     rating: 4.3,
     reviews: 167,
-    image: "/filter-cartridge.png",
+    image: "/assets/install-kit.png",
     description: "Professional installation kit with all fittings, pipes, and hardware for wall-mounted installation.",
     specs: {
       "Pipe Length": "3 meters",

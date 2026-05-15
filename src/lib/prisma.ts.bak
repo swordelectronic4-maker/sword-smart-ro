@@ -1,0 +1,267 @@
+/**
+ * Prisma Client — Supabase PostgreSQL Connection
+ * 
+ * To connect to Supabase:
+ * 1. Create project at https://supabase.com
+ * 2. Go to Project Settings → Database → Connection String
+ * 3. Copy the pooled connection string (port 6543)
+ * 4. Add to .env: DATABASE_URL="postgresql://..."
+ * 5. Add to .env: DIRECT_URL="postgresql://..." (port 5432, for migrations)
+ * 
+ * For localStorage mode (current), all functions work without Prisma.
+ * To switch to PostgreSQL, replace the localStorage calls with Prisma queries.
+ */
+
+import { PrismaClient } from '@prisma/client';
+
+// Prevent multiple instances in development (Next.js hot reload)
+const globalForPrisma = global as unknown as { prisma: PrismaClient };
+
+export const prisma = globalForPrisma.prisma || new PrismaClient({
+  log: process.env.NODE_ENV === 'development' 
+    ? ['query', 'info', 'warn', 'error'] 
+    : ['error'],
+});
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+
+export default prisma;
+
+// ═══════════════════════════════════════════════
+// Data Access Layer — Switchable between localStorage and PostgreSQL
+// ═══════════════════════════════════════════════
+
+import {
+  getProducts as lsGetProducts,
+  saveProducts as lsSaveProducts,
+  updateProduct as lsUpdateProduct,
+  deleteProduct as lsDeleteProduct,
+  addProduct as lsAddProduct,
+  getOrders as lsGetOrders,
+  saveOrders as lsSaveOrders,
+  updateOrder as lsUpdateOrder,
+  deleteOrder as lsDeleteOrder,
+  getUsers as lsGetUsers,
+  saveUsers as lsSaveUsers,
+  updateUser as lsUpdateUser,
+  deleteUser as lsDeleteUser,
+  getCoupons as lsGetCoupons,
+  saveCoupons as lsSaveCoupons,
+  updateCoupon as lsUpdateCoupon,
+  deleteCoupon as lsDeleteCoupon,
+  addCoupon as lsAddCoupon,
+  getSettings as lsGetSettings,
+  saveSettings as lsSaveSettings,
+  seedDatabase,
+} from '@/services/dataStore';
+
+// Check if Prisma/PostgreSQL is available
+const USE_PRISMA = !!process.env.DATABASE_URL;
+
+// Auto-seed localStorage on first load
+seedDatabase();
+
+// ═══════════════════════════════════════════════
+// Products
+// ═══════════════════════════════════════════════
+export async function findProducts(filters?: { status?: string; categoryId?: string; featured?: boolean }) {
+  if (USE_PRISMA) {
+    return prisma.product.findMany({
+      where: filters,
+      include: { images: true, category: true, brand: true, reviews: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+  let products = lsGetProducts();
+  if (filters?.status) products = products.filter(p => p.status === filters.status);
+  if (filters?.categoryId) products = products.filter(p => p.categoryId === filters.categoryId);
+  if (filters?.featured) products = products.filter(p => p.featured === filters.featured);
+  return products;
+}
+
+export async function findProductById(id: string) {
+  if (USE_PRISMA) {
+    return prisma.product.findUnique({
+      where: { id },
+      include: { images: true, category: true, brand: true, reviews: true },
+    });
+  }
+  return lsGetProducts().find(p => p.id === id);
+}
+
+export async function createProduct(data: any) {
+  if (USE_PRISMA) {
+    return prisma.product.create({ data });
+  }
+  const product = { ...data, id: data.id || `prod_${Date.now()}` };
+  lsAddProduct(product);
+  return product;
+}
+
+export async function updateProductById(id: string, data: any) {
+  if (USE_PRISMA) {
+    return prisma.product.update({ where: { id }, data });
+  }
+  lsUpdateProduct(id, data);
+  return lsGetProducts().find(p => p.id === id);
+}
+
+export async function deleteProductById(id: string) {
+  if (USE_PRISMA) {
+    return prisma.product.delete({ where: { id } });
+  }
+  lsDeleteProduct(id);
+  return { id };
+}
+
+// ═══════════════════════════════════════════════
+// Orders
+// ═══════════════════════════════════════════════
+export async function findOrders(filters?: { userId?: string; status?: string }) {
+  if (USE_PRISMA) {
+    return prisma.order.findMany({
+      where: filters,
+      include: { items: true },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+  let orders = lsGetOrders();
+  if (filters?.status) orders = orders.filter(o => o.status === filters.status);
+  return orders;
+}
+
+export async function findOrderById(id: string) {
+  if (USE_PRISMA) {
+    return prisma.order.findUnique({ where: { id }, include: { items: true } });
+  }
+  return lsGetOrders().find(o => o.id === id);
+}
+
+export async function updateOrderById(id: string, data: any) {
+  if (USE_PRISMA) {
+    return prisma.order.update({ where: { id }, data });
+  }
+  lsUpdateOrder(id, data);
+  return lsGetOrders().find(o => o.id === id);
+}
+
+export async function deleteOrderById(id: string) {
+  if (USE_PRISMA) {
+    return prisma.order.delete({ where: { id } });
+  }
+  lsDeleteOrder(id);
+  return { id };
+}
+
+// ═══════════════════════════════════════════════
+// Users
+// ═══════════════════════════════════════════════
+export async function findUsers() {
+  if (USE_PRISMA) {
+    return prisma.user.findMany({ orderBy: { createdAt: 'desc' } });
+  }
+  return lsGetUsers();
+}
+
+export async function updateUserById(id: string, data: any) {
+  if (USE_PRISMA) {
+    return prisma.user.update({ where: { id }, data });
+  }
+  lsUpdateUser(id, data);
+  return lsGetUsers().find(u => u.id === id);
+}
+
+export async function deleteUserById(id: string) {
+  if (USE_PRISMA) {
+    return prisma.user.delete({ where: { id } });
+  }
+  lsDeleteUser(id);
+  return { id };
+}
+
+// ═══════════════════════════════════════════════
+// Coupons
+// ═══════════════════════════════════════════════
+export async function findCoupons() {
+  if (USE_PRISMA) {
+    return prisma.coupon.findMany({ orderBy: { createdAt: 'desc' } });
+  }
+  return lsGetCoupons();
+}
+
+export async function updateCouponById(id: string, data: any) {
+  if (USE_PRISMA) {
+    return prisma.coupon.update({ where: { id }, data });
+  }
+  lsUpdateCoupon(id, data);
+  return lsGetCoupons().find(c => c.id === id);
+}
+
+export async function deleteCouponById(id: string) {
+  if (USE_PRISMA) {
+    return prisma.coupon.delete({ where: { id } });
+  }
+  lsDeleteCoupon(id);
+  return { id };
+}
+
+export async function createCoupon(data: any) {
+  if (USE_PRISMA) {
+    return prisma.coupon.create({ data });
+  }
+  lsAddCoupon(data);
+  return data;
+}
+
+// ═══════════════════════════════════════════════
+// Settings
+// ═══════════════════════════════════════════════
+export async function findSettings() {
+  if (USE_PRISMA) {
+    return prisma.setting.findMany();
+  }
+  return lsGetSettings();
+}
+
+export async function updateSetting(key: string, value: string) {
+  if (USE_PRISMA) {
+    return prisma.setting.update({ where: { key }, data: { value } });
+  }
+  lsSaveSettings({ [key]: value });
+  return { key, value };
+}
+
+// ═══════════════════════════════════════════════
+// Activity Log
+// ═══════════════════════════════════════════════
+export async function logActivity(data: {
+  userId?: string;
+  userName?: string;
+  action: string;
+  entity: string;
+  entityId?: string;
+  details?: string;
+}) {
+  if (USE_PRISMA) {
+    return prisma.activityLog.create({ data });
+  }
+  // Store in localStorage for demo
+  const logs = JSON.parse(localStorage.getItem('sword_activity_logs') || '[]');
+  logs.unshift({ ...data, id: `log_${Date.now()}`, createdAt: new Date().toISOString() });
+  localStorage.setItem('sword_activity_logs', JSON.stringify(logs.slice(0, 500)));
+}
+
+// ═══════════════════════════════════════════════
+// Seed function for Supabase
+// ═══════════════════════════════════════════════
+export async function seedSupabase() {
+  if (!USE_PRISMA) return;
+  
+  // Check if already seeded
+  const count = await prisma.user.count();
+  if (count > 0) return; // Already seeded
+  
+  console.log('[Prisma] Seeding Supabase database...');
+  // Seed data would be inserted here using prisma.create calls
+  // This is a placeholder - actual seed uses seed.sql file
+}

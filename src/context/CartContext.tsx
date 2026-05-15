@@ -40,9 +40,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
     {
       productId: "sword-smart-ro",
       productName: "SWORD Smart RO Purifier",
-      price: 45999,
+      price: 27999,
       quantity: 1,
-      image: "/assets/product-front.png",
+      image: "/assets/product-1.png",
     },
     {
       productId: "filter-replacement-kit",

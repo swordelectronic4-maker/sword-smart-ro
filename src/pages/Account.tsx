@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/context/CartContext';
 import { mockOrders } from '@/data/orders';
-import { products } from '@/data/products';
+import { products as getProductList, type Product } from '@/data/products';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard, ShoppingBag, MapPin, Heart, Wifi, Gift, User,
@@ -115,7 +115,7 @@ const sidebarNavItems = [
 ];
 
 export default function Account() {
-  const { user, logout } = useAuth();
+  const { user, login, logout, googleLogin } = useAuth();
   const { wishlist, toggleWishlist, addToCart } = useCart();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -132,6 +132,7 @@ export default function Account() {
   const [showOrderDetail, setShowOrderDetail] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current: '', new: '', confirm: '' });
   const [showPasswords, setShowPasswords] = useState({ current: false, new: false, confirm: false });
+  const allProducts = getProductList();
 
   const handleCopyCode = useCallback(() => {
     navigator.clipboard.writeText('SWORD-PRIYANK-500');
@@ -155,20 +156,238 @@ export default function Account() {
 
   const selectedOrder = mockOrders.find((o) => o.id === selectedOrderId);
 
-  const wishlistProducts = products.filter((p) => wishlist.includes(p.id));
+  const wishlistProducts = allProducts.filter((p: Product) => wishlist.includes(p.id));
+
+  // Login/Register form states
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginMode, setLoginMode] = useState<'login' | 'register'>('login');
+  const [regName, setRegName] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPhone, setRegPhone] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regError, setRegError] = useState('');
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    if (!loginEmail.trim() || !loginPassword.trim()) {
+      setLoginError('Please enter email and password');
+      return;
+    }
+    if (loginPassword.length < 6) {
+      setLoginError('Password must be at least 6 characters');
+      return;
+    }
+    const success = login(loginEmail, loginPassword);
+    if (!success) {
+      setLoginError('Invalid credentials');
+    }
+  };
+
+  const handleRegister = (e: React.FormEvent) => {
+    e.preventDefault();
+    setRegError('');
+    if (!regName.trim() || !regEmail.trim() || !regPhone.trim() || !regPassword.trim()) {
+      setRegError('Please fill all fields');
+      return;
+    }
+    if (regPassword.length < 6) {
+      setRegError('Password must be at least 6 characters');
+      return;
+    }
+    // Use the login function to also register (our AuthContext handles both)
+    const success = login(regEmail, regPassword);
+    if (success) {
+      // If register mode, just log them in with the provided email
+      // In a real app, you'd have a separate register function
+      setLoginMode('login');
+    } else {
+      setRegError('Registration failed');
+    }
+  };
 
   if (!user) {
     return (
-      <div className="min-h-[100dvh] pt-[72px] bg-[#0A0A0A] flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-[#A0A0A0] mb-4">Please log in to view your account</p>
-          <button
-            onClick={() => navigate('/shop')}
-            className="btn-primary"
-          >
-            Log In (Demo)
-          </button>
-        </div>
+      <div className="min-h-[100dvh] pt-[72px] bg-[#0A0A0A] flex items-center justify-center px-4">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="w-full max-w-[420px]"
+        >
+          {/* Logo */}
+          <div className="text-center mb-8">
+            <img src="/assets/logo.png" alt="SWORD" className="h-12 mx-auto mb-4" />
+            <h1 className="font-display text-2xl text-white mb-1">
+              {loginMode === 'login' ? 'Welcome Back' : 'Create Account'}
+            </h1>
+            <p className="text-[#A0A0A0] text-sm">
+              {loginMode === 'login'
+                ? 'Sign in to access your account'
+                : 'Register to get started with SWORD'}
+            </p>
+          </div>
+
+          {/* Login Form */}
+          {loginMode === 'login' ? (
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div className="glass-panel p-6 space-y-4">
+                <div>
+                  <label className="text-label mb-1.5 block">Username or Email</label>
+                  <div className="relative">
+                    <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
+                    <input
+                      type="text"
+                      value={loginEmail}
+                      onChange={(e) => setLoginEmail(e.target.value)}
+                      placeholder="Enter username or email"
+                      className="input-sword pl-10"
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-label mb-1.5 block">Password</label>
+                  <div className="relative">
+                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
+                    <input
+                      type="password"
+                      value={loginPassword}
+                      onChange={(e) => setLoginPassword(e.target.value)}
+                      placeholder="Min 6 characters"
+                      className="input-sword pl-10"
+                      required
+                      minLength={6}
+                    />
+                  </div>
+                </div>
+
+                {loginError && (
+                  <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 p-2">{loginError}</p>
+                )}
+
+                <button type="submit" className="btn-primary w-full">
+                  Sign In
+                </button>
+
+                {/* Divider */}
+                <div className="flex items-center gap-3 py-1">
+                  <div className="flex-1 h-px bg-white/10" />
+                  <span className="text-[#666] text-xs uppercase tracking-wider">or</span>
+                  <div className="flex-1 h-px bg-white/10" />
+                </div>
+
+                {/* Google Sign In */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    googleLogin();
+                  }}
+                  className="btn-google w-full"
+                >
+                  <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z" fill="#4285F4"/>
+                    <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.583-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z" fill="#34A853"/>
+                    <path d="M3.964 10.71c-.18-.54-.282-1.116-.282-1.71s.102-1.17.282-1.71V4.958H.957C.347 6.173 0 7.548 0 9s.348 2.827.957 4.042l3.007-2.332z" fill="#FBBC05"/>
+                    <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58z" fill="#EA4335"/>
+                  </svg>
+                  Sign in with Google
+                </button>
+              </div>
+
+              {/* Password hint */}
+              <div className="bg-white/5 border border-white/10 p-3 text-center">
+                <p className="text-[#A0A0A0] text-xs">Password must be at least 6 characters</p>
+              </div>
+
+              <p className="text-center text-[#A0A0A0] text-sm">
+                Don't have an account?{' '}
+                <button type="button" onClick={() => { setLoginMode('register'); setLoginError(''); }} className="text-[#D4AF37] hover:underline">
+                  Register
+                </button>
+              </p>
+            </form>
+          ) : (
+            /* Register Form */
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div className="glass-panel p-6 space-y-4">
+                <div>
+                  <label className="text-label mb-1.5 block">Full Name</label>
+                  <div className="relative">
+                    <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
+                    <input
+                      type="text"
+                      value={regName}
+                      onChange={(e) => setRegName(e.target.value)}
+                      placeholder="Your full name"
+                      className="input-sword pl-10"
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-label mb-1.5 block">Email Address</label>
+                  <div className="relative">
+                    <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
+                    <input
+                      type="email"
+                      value={regEmail}
+                      onChange={(e) => setRegEmail(e.target.value)}
+                      placeholder="your@email.com"
+                      className="input-sword pl-10"
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-label mb-1.5 block">Phone Number</label>
+                  <div className="relative">
+                    <Phone size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
+                    <input
+                      type="tel"
+                      value={regPhone}
+                      onChange={(e) => setRegPhone(e.target.value)}
+                      placeholder="+91 98765 43210"
+                      className="input-sword pl-10"
+                      required
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-label mb-1.5 block">Password</label>
+                  <div className="relative">
+                    <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#666]" />
+                    <input
+                      type="password"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      placeholder="Min 6 characters"
+                      className="input-sword pl-10"
+                      required
+                      minLength={6}
+                    />
+                  </div>
+                </div>
+
+                {regError && (
+                  <p className="text-red-400 text-sm bg-red-500/10 border border-red-500/20 p-2">{regError}</p>
+                )}
+
+                <button type="submit" className="btn-primary w-full">
+                  Create Account
+                </button>
+              </div>
+
+              <p className="text-center text-[#A0A0A0] text-sm">
+                Already have an account?{' '}
+                <button type="button" onClick={() => { setLoginMode('login'); setRegError(''); }} className="text-[#D4AF37] hover:underline">
+                  Sign In
+                </button>
+              </p>
+            </form>
+          )}
+        </motion.div>
       </div>
     );
   }
@@ -401,7 +620,7 @@ export default function Account() {
                               {/* Thumbnail strip */}
                               <div className="flex gap-2 mb-4">
                                 {order.items.slice(0, 3).map((item) => {
-                                  const prod = products.find((p) => p.id === item.productId);
+                                  const prod = allProducts.find((p: Product) => p.id === item.productId);
                                   return (
                                     <div key={item.productId} className="flex items-center gap-2 bg-[rgba(255,255,255,0.03)] px-3 py-2 border border-[rgba(255,255,255,0.06)]">
                                       <Package size={14} className="text-[#666666]" />
@@ -429,7 +648,7 @@ export default function Account() {
                                 )}
                                 <button onClick={() => {
                                   order.items.forEach((item) => {
-                                    const prod = products.find((p) => p.id === item.productId);
+                                    const prod = allProducts.find((p: Product) => p.id === item.productId);
                                     if (prod) addToCart({ productId: prod.id, productName: prod.name, price: prod.price, image: prod.image });
                                   });
                                 }} className="text-[0.75rem] text-[#A0A0A0] hover:text-[#D4AF37] flex items-center gap-1">
@@ -543,7 +762,7 @@ export default function Account() {
                             <div className="flex flex-wrap gap-3 pt-4 border-t border-[rgba(255,255,255,0.06)]">
                               <button onClick={() => {
                                 selectedOrder.items.forEach((item) => {
-                                  const prod = products.find((p) => p.id === item.productId);
+                                  const prod = allProducts.find((p: Product) => p.id === item.productId);
                                   if (prod) addToCart({ productId: prod.id, productName: prod.name, price: prod.price, image: prod.image });
                                 });
                               }} className="btn-primary text-[0.75rem] inline-flex items-center gap-2">

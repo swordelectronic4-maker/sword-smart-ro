@@ -139,6 +139,11 @@ export interface InventoryItem {
   movements: { date: string; type: string; qty: number; reason: string; user: string; }[];
 }
 
+// ====== Live Data from dataStore ======
+import { getOrders, getUsers } from '@/services/dataStore';
+export { getOrders as orders };
+export { getUsers as users };
+
 // ====== Helper ======
 const r = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1)) + min;
 const pick = <T,>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
@@ -153,7 +158,7 @@ const productNames = ['SWORD Smart RO Purifier', 'PP Cotton Sediment Filter', 'A
 const skus = ['SWD-RO-001', 'FLT-PP-001', 'FLT-AC-001', 'MEM-RO-001', 'MEM-NF-001', 'MEM-UF-001', 'CRT-MN-001', 'SNS-TD-001', 'KIT-FR-001', 'AMC-GD-001', 'AMC-PL-001', 'KIT-IN-001'];
 const categories = ['Purifiers', 'Filters', 'Filters', 'Membranes', 'Membranes', 'Membranes', 'Filters', 'Accessories', 'Kits', 'Services', 'Services', 'Accessories'];
 
-export const adminOrders: AdminOrder[] = Array.from({ length: 50 }, (_, i) => {
+export const defaultOrders: AdminOrder[] = Array.from({ length: 50 }, (_, i) => {
   const fi = r(0, firstNames.length - 1);
   const li = r(0, lastNames.length - 1);
   const ci = r(0, cities.length - 1);
@@ -195,7 +200,7 @@ export const adminOrders: AdminOrder[] = Array.from({ length: 50 }, (_, i) => {
   };
 });
 
-export const adminUsers: AdminUser[] = Array.from({ length: 30 }, (_, i) => {
+export const defaultUsers: AdminUser[] = Array.from({ length: 30 }, (_, i) => {
   const fi = r(0, firstNames.length - 1);
   const li = r(0, lastNames.length - 1);
   const roles: UserRole[] = i < 3 ? ['admin'] : i < 6 ? ['manager'] : i < 9 ? ['support'] : ['customer'];
@@ -215,6 +220,9 @@ export const adminUsers: AdminUser[] = Array.from({ length: 30 }, (_, i) => {
   };
 });
 
+export const adminOrders: AdminOrder[] = defaultOrders;
+export const adminUsers: AdminUser[] = defaultUsers;
+
 export const adminProducts: AdminProduct[] = productNames.map((name, i) => ({
   id: `PRD-${String(i + 1).padStart(4, '0')}`,
   name,
@@ -226,7 +234,7 @@ export const adminProducts: AdminProduct[] = productNames.map((name, i) => ({
   reorderLevel: [10, 20, 20, 5, 5, 5, 15, 8, 8, 0, 0, 10][i],
   status: pick(['active', 'active', 'active', 'active', 'active', 'inactive', 'active', 'active', 'active', 'active', 'active', 'active']) as ProductStatus,
   sales: r(50, 1200),
-  image: i === 0 ? '/assets/product-front.png' : '/filter-cartridge.png',
+  image: i === 0 ? '/assets/product-1.png' : '/filter-cartridge.png',
 }));
 
 export const inventory: InventoryItem[] = adminProducts.map((p) => ({
@@ -244,12 +252,12 @@ export const inventory: InventoryItem[] = adminProducts.map((p) => ({
 
 export const coupons: Coupon[] = [
   { id: 'CP-001', code: 'SWORD10', description: '10% off on all products', type: 'percentage', value: 10, minOrder: 5000, maxDiscount: 5000, usageLimit: 100, usageCount: 45, validFrom: '2025-01-01', validUntil: '2025-06-30', status: 'active', firstOrderOnly: false },
-  { id: 'CP-002', code: 'WELCOME500', description: 'Flat ₹500 off for new customers', type: 'fixed', value: 500, minOrder: 10000, usageLimit: 200, usageCount: 128, validFrom: '2025-01-01', validUntil: '2025-12-31', status: 'active', firstOrderOnly: true },
+  { id: 'CP-002', code: 'WELCOME500', description: 'Flat \u20B9500 off for new customers', type: 'fixed', value: 500, minOrder: 10000, usageLimit: 200, usageCount: 128, validFrom: '2025-01-01', validUntil: '2025-12-31', status: 'active', firstOrderOnly: true },
   { id: 'CP-003', code: 'FREESHIP', description: 'Free shipping on all orders', type: 'free_shipping', value: 0, minOrder: 25000, usageLimit: 500, usageCount: 312, validFrom: '2025-02-01', validUntil: '2025-05-31', status: 'active', firstOrderOnly: false },
   { id: 'CP-004', code: 'DIWALI25', description: '25% off Diwali special', type: 'percentage', value: 25, minOrder: 20000, maxDiscount: 10000, usageLimit: 50, usageCount: 50, validFrom: '2024-10-01', validUntil: '2024-11-15', status: 'expired', firstOrderOnly: false },
   { id: 'CP-005', code: 'AMC15', description: '15% off on AMC plans', type: 'percentage', value: 15, minOrder: 0, maxDiscount: 1500, usageLimit: 100, usageCount: 23, validFrom: '2025-03-01', validUntil: '2025-08-31', status: 'active', firstOrderOnly: false },
   { id: 'CP-006', code: 'SUMMER2025', description: 'Summer sale - 20% off', type: 'percentage', value: 20, minOrder: 15000, maxDiscount: 8000, usageLimit: 150, usageCount: 0, validFrom: '2025-05-01', validUntil: '2025-07-31', status: 'active', firstOrderOnly: false },
-  { id: 'CP-007', code: 'LOYAL2000', description: '₹2000 off for loyal customers', type: 'fixed', value: 2000, minOrder: 40000, usageLimit: 50, usageCount: 12, validFrom: '2025-01-01', validUntil: '2025-12-31', status: 'active', firstOrderOnly: false },
+  { id: 'CP-007', code: 'LOYAL2000', description: '\u20B92000 off for loyal customers', type: 'fixed', value: 2000, minOrder: 40000, usageLimit: 50, usageCount: 12, validFrom: '2025-01-01', validUntil: '2025-12-31', status: 'active', firstOrderOnly: false },
   { id: 'CP-008', code: 'BLACKFRIDAY', description: 'Black Friday mega sale', type: 'percentage', value: 30, minOrder: 10000, maxDiscount: 15000, usageLimit: 30, usageCount: 0, validFrom: '2025-11-28', validUntil: '2025-11-30', status: 'disabled', firstOrderOnly: false },
 ];
 
@@ -308,7 +316,7 @@ export const auditLogs: AuditLog[] = [
   { id: 'LOG-009', timestamp: '2025-04-12T22:00:00Z', user: 'System', role: 'admin', action: 'create', module: 'Subscriptions', target: 'SUB-00021', details: 'New AMC Platinum subscription by Deepak R.', ip: '10.0.1.5' },
   { id: 'LOG-010', timestamp: '2025-04-12T15:30:10Z', user: 'Priyank Joshi', role: 'admin', action: 'delete', module: 'Coupons', target: 'CP-004', details: 'Expired coupon DIWALI25 deleted', ip: '103.21.45.67' },
   { id: 'LOG-011', timestamp: '2025-04-12T09:00:00Z', user: 'Rahul Mehta', role: 'manager', action: 'update', module: 'Shipping', target: 'SHP-00015', details: 'Carrier updated from DTDC to Blue Dart', ip: '103.45.67.89' },
-  { id: 'LOG-012', timestamp: '2025-04-11T18:20:30Z', user: 'Sneha Kapoor', role: 'support', action: 'update', module: 'Orders', target: 'ORD-2025-00035', details: 'Refund processed: ₹15,450', ip: '103.67.89.12' },
+  { id: 'LOG-012', timestamp: '2025-04-11T18:20:30Z', user: 'Sneha Kapoor', role: 'support', action: 'update', module: 'Orders', target: 'ORD-2025-00035', details: 'Refund processed: \u20B915,450', ip: '103.67.89.12' },
   { id: 'LOG-013', timestamp: '2025-04-11T12:00:00Z', user: 'System', role: 'admin', action: 'export', module: 'Audit Logs', target: 'Logs', details: 'Audit log export for Q1 2025', ip: '10.0.1.5' },
   { id: 'LOG-014', timestamp: '2025-04-10T08:30:15Z', user: 'Priyank Joshi', role: 'admin', action: 'login', module: 'System', target: 'Auth', details: 'Admin login successful', ip: '103.21.45.67' },
   { id: 'LOG-015', timestamp: '2025-04-10T07:15:00Z', user: 'Rahul Mehta', role: 'manager', action: 'logout', module: 'System', target: 'Auth', details: 'Manager logout', ip: '103.45.67.89' },
@@ -347,12 +355,12 @@ export const revenueByCategory = [
 
 // Orders by status
 export const ordersByStatus = [
-  { name: 'Placed', count: adminOrders.filter(o => o.status === 'placed').length },
-  { name: 'Processing', count: adminOrders.filter(o => o.status === 'processing').length },
-  { name: 'Shipped', count: adminOrders.filter(o => o.status === 'shipped').length },
-  { name: 'Delivered', count: adminOrders.filter(o => o.status === 'delivered').length },
-  { name: 'Cancelled', count: adminOrders.filter(o => o.status === 'cancelled').length },
-  { name: 'Out for Delivery', count: adminOrders.filter(o => o.status === 'out_for_delivery').length },
+  { name: 'Placed', count: defaultOrders.filter(o => o.status === 'placed').length },
+  { name: 'Processing', count: defaultOrders.filter(o => o.status === 'processing').length },
+  { name: 'Shipped', count: defaultOrders.filter(o => o.status === 'shipped').length },
+  { name: 'Delivered', count: defaultOrders.filter(o => o.status === 'delivered').length },
+  { name: 'Cancelled', count: defaultOrders.filter(o => o.status === 'cancelled').length },
+  { name: 'Out for Delivery', count: defaultOrders.filter(o => o.status === 'out_for_delivery').length },
 ];
 
 // User acquisition data
@@ -427,8 +435,8 @@ export const settingsData = {
   cin: 'U31900MH2024PTC123456',
   address: 'Plot 42, Tech Park Phase 3, Mumbai - 400001',
   razorpayKeyId: 'rzp_test_xxxxxxxxxxxx',
-  razorpaySecret: '••••••••••••••••',
-  stripeKey: 'pk_test_••••••••••••••••',
+  razorpaySecret: '\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',
+  stripeKey: 'pk_test_\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022',
   freeShippingThreshold: 50000,
   flatShippingRate: 199,
 };

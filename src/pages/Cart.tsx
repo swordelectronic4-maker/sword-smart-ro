@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Minus, Plus, X, ShoppingBag, Tag, ArrowRight, Trash2 } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
-import { products } from '@/data/products';
+import { products as getProductList } from '@/data/products';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
@@ -53,7 +53,8 @@ export default function Cart() {
     setCouponError('');
   };
 
-  const crossSell = products.filter((p) => !items.some((i) => i.productId === p.id)).slice(0, 3);
+  const allProducts = getProductList();
+  const crossSell = allProducts.filter((p) => !items.some((i) => i.productId === p.id)).slice(0, 3);
 
   if (items.length === 0) {
     return (

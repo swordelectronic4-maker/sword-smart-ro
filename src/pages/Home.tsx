@@ -4,7 +4,7 @@ import { motion, useInView, AnimatePresence } from 'framer-motion';
 import { useCart } from '@/context/CartContext';
 import { stages } from '@/data/stages';
 import { reviews } from '@/data/reviews';
-import { products } from '@/data/products';
+import { products as getProductList } from '@/data/products';
 import LoadingScreen from '@/components/LoadingScreen';
 import {
   ChevronDown, Brain, Droplets, Gem, Sliders, Wifi, Calendar,
@@ -125,7 +125,7 @@ function HeroScene() {
           className="mb-6"
         >
           <img
-            src="/logo-gold.png"
+            src="/assets/logo.png"
             alt="SWORD Smart Water"
             className="h-[60px] md:h-[80px] w-auto mx-auto"
             style={{ filter: 'drop-shadow(0 0 20px rgba(212, 175, 55, 0.5))' }}
@@ -226,19 +226,6 @@ function ExplodedViewScene() {
         </motion.div>
 
         {/* Flowchart */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={isInView ? { opacity: 1, scale: 1 } : {}}
-          transition={{ duration: 1, delay: 0.3 }}
-          className="mb-16"
-        >
-          <img
-            src="/assets/product-flowchart.png"
-            alt="14-stage purification flowchart"
-            className="w-full max-w-[900px] mx-auto"
-          />
-        </motion.div>
-
         {/* Stage Cards Grid */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-7 gap-3">
           {stages.map((stage, index) => (
@@ -698,7 +685,7 @@ function InteractiveExplorationScene() {
         >
           <div className="relative bg-gradient-to-b from-[#111111] to-[#0A0A0A] p-8 md:p-12">
             <img
-              src="/assets/product-front.png"
+              src="/assets/product-1.png"
               alt="SWORD Smart RO Purifier with interactive hotspots"
               className="w-full max-w-[350px] mx-auto object-contain"
             />
@@ -959,7 +946,7 @@ function CtaFinaleScene() {
           className="mb-8"
         >
           <p className="text-data-lg font-mono text-[#D4AF37] mb-1">
-            ₹{products[0].price.toLocaleString('en-IN')}
+            ₹{getProductList()[0]?.price.toLocaleString('en-IN') || '27,999'}
           </p>
           <p className="text-[0.875rem] text-[#666666]">
             or ₹4,278/month for 12 months
@@ -1161,16 +1148,6 @@ function TechnicalSpecs() {
             transition={{ duration: 0.8, delay: 0.5 }}
             className="space-y-6"
           >
-            {/* Flow Diagram */}
-            <div className="glass-panel p-6">
-              <h3 className="text-label text-white mb-4">14-STAGE FLOW</h3>
-              <img
-                src="/assets/product-flowchart.png"
-                alt="14-stage purification flow diagram"
-                className="w-full"
-              />
-            </div>
-
             {/* Certifications */}
             <div className="glass-panel p-6 text-center">
               <h3 className="text-label text-white mb-4">CERTIFIED & TRUSTED</h3>
@@ -1267,7 +1244,7 @@ function PricingSection() {
   const isInView = useInView(ref, { once: true, margin: "-100px" });
   const { addToCart } = useCart();
   const [selectedEmi, setSelectedEmi] = useState(12);
-  const heroProduct = products[0];
+  const heroProduct = getProductList()[0];
 
   const emiOptions = [
     { months: 3, amount: 15847 },

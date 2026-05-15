@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Heart, ShoppingCart, Zap, Star, ChevronRight, Minus, Plus, Check, Shield, Truck, RotateCcw } from 'lucide-react';
-import { products } from '@/data/products';
+import { Heart, ShoppingCart, Zap, Star, ChevronRight, Minus, Plus, Check, Shield, Truck, RotateCcw, Award, MapPin, BadgeCheck } from 'lucide-react';
+import { getProductById, products as getProductList } from '@/data/products';
 import { reviews } from '@/data/reviews';
 import { useCart } from '@/context/CartContext';
 import { Button } from '@/components/ui/button';
@@ -31,11 +31,12 @@ export default function ProductDetail() {
   const navigate = useNavigate();
   const { addToCart, toggleWishlist, isInWishlist } = useCart();
 
-  const product = products.find((p) => p.id === id);
+  const product = getProductById(id || '');
   const [quantity, setQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]>('Description');
   const [showEMI, setShowEMI] = useState(false);
   const [selectedImage, setSelectedImage] = useState(0);
+  const [imageError, setImageError] = useState(false);
 
   if (!product) {
     return (
@@ -52,16 +53,14 @@ export default function ProductDetail() {
 
   const wishlisted = isInWishlist(product.id);
   const discount = Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100);
-  const related = products.filter((p) => p.category === product.category && p.id !== product.id).slice(0, 3);
+  const allProducts = getProductList();
+  const related = allProducts.filter((p) => p.category === product.category && p.id !== product.id).slice(0, 3);
 
-  const productImages = [
-    product.image,
-    '/assets/product-flowchart.png',
-    '/nf-ro-diagram.png',
-    '/lifestyle-kitchen.jpg',
-  ];
+  const productImages = [product.image];
 
   const productReviews = reviews.slice(0, 4);
+
+  const stock = product.stock ?? 0;
 
   return (
     <div className="min-h-screen bg-[#0A0A0A] pt-[72px]">
@@ -88,16 +87,33 @@ export default function ProductDetail() {
           >
             <div className="aspect-square bg-[#111] border border-white/[0.06] mb-4 overflow-hidden">
               <AnimatePresence mode="wait">
-                <motion.img
-                  key={selectedImage}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.3 }}
-                  src={productImages[selectedImage]}
-                  alt={product.name}
-                  className="w-full h-full object-contain p-8"
-                />
+                {imageError ? (
+                  <motion.div
+                    key="placeholder"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="w-full h-full flex items-center justify-center bg-[#1A1A1A]"
+                  >
+                    <div className="w-32 h-32 rounded-full bg-[#D4AF37]/20 flex items-center justify-center">
+                      <span className="text-5xl font-bold text-[#D4AF37] font-['Playfair_Display']">
+                        {product.name.charAt(0)}
+                      </span>
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.img
+                    key={selectedImage}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.3 }}
+                    src={productImages[selectedImage]}
+                    alt={product.name}
+                    className="w-full h-full object-contain p-8"
+                    onError={() => setImageError(true)}
+                  />
+                )}
               </AnimatePresence>
             </div>
             <div className="flex gap-3">
@@ -109,7 +125,7 @@ export default function ProductDetail() {
                     selectedImage === i ? 'border-[#D4AF37]' : 'border-white/10 hover:border-white/30'
                   }`}
                 >
-                  <img src={img} alt="" className="w-full h-full object-cover" />
+                  <img src={img} alt="" className="w-full h-full object-cover" onError={() => setImageError(true)} />
                 </button>
               ))}
             </div>
@@ -139,16 +155,10 @@ export default function ProductDetail() {
                 ))}
               </div>
               <span className="text-sm text-[#A0A0A0]">{product.rating} ({product.reviews} reviews)</span>
-              {product.inStock ? (
-                <span className="flex items-center gap-1 text-sm text-[#2EC4B6]">
-                  <Check size={14} /> In Stock
-                </span>
-              ) : (
-                <span className="text-sm text-[#E63946]">Out of Stock</span>
-              )}
             </div>
 
-            <div className="flex items-baseline gap-3 mb-6">
+            {/* Price Section */}
+            <div className="flex items-baseline gap-3 mb-2">
               <span className="text-3xl font-semibold text-[#D4AF37] font-['JetBrains_Mono']">
                 {formatPrice(product.price)}
               </span>
@@ -158,21 +168,50 @@ export default function ProductDetail() {
               )}
             </div>
 
+            {/* GST Note */}
+            <p className="text-xs text-[#666] mb-3">Inclusive of all taxes (9% CGST + 9% SGST)</p>
+
+            {/* Stock Display */}
+            <div className="mb-4">
+              {product.inStock ? (
+                stock > 20 ? (
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-[#2EC4B6]">
+                    <Check size={16} /> In Stock &mdash; Ships within 24 hours
+                  </span>
+                ) : stock >= 5 ? (
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-[#FF9F1C]">
+                    <Check size={16} /> Only {stock} left &mdash; Order soon!
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 text-sm font-medium text-[#E63946]">
+                    <Check size={16} /> Almost gone! Only {stock} remaining
+                  </span>
+                )
+              ) : (
+                <span className="flex items-center gap-1 text-sm text-[#E63946] font-medium">
+                  Out of Stock
+                </span>
+              )}
+            </div>
+
             <p className="text-[#A0A0A0] leading-relaxed mb-6">{product.description}</p>
 
-            {/* EMI Teaser */}
-            <div className="bg-white/[0.03] border border-white/[0.08] p-4 mb-6">
+            {/* EMI Section - Enhanced */}
+            <div className="bg-gradient-to-br from-[#D4AF37]/[0.06] to-transparent border border-[#D4AF37]/30 p-4 mb-6 rounded-sm">
               <button
                 onClick={() => setShowEMI(!showEMI)}
                 className="flex items-center justify-between w-full text-left"
               >
-                <span className="text-sm text-white">
-                  No Cost EMI starting at{' '}
-                  <span className="text-[#D4AF37] font-['JetBrains_Mono'] font-semibold">
-                    {formatPrice(calculateEMI(product.price, 12).emi)}/month
+                <div className="flex items-center gap-2">
+                  <Zap size={16} className="text-[#D4AF37]" />
+                  <span className="text-sm text-white">
+                    No Cost EMI starting at{' '}
+                    <span className="text-[#D4AF37] font-['JetBrains_Mono'] font-semibold">
+                      {formatPrice(calculateEMI(product.price, 12).emi)}/month
+                    </span>
                   </span>
-                </span>
-                <span className="text-[#D4AF37] text-sm">{showEMI ? 'Hide' : 'View Plans'}</span>
+                </div>
+                <span className="text-[#D4AF37] text-sm font-medium">{showEMI ? 'Hide' : 'View Plans'}</span>
               </button>
 
               <AnimatePresence>
@@ -184,15 +223,15 @@ export default function ProductDetail() {
                     transition={{ duration: 0.3 }}
                     className="overflow-hidden"
                   >
-                    <div className="mt-4 pt-4 border-t border-white/10">
-                      <p className="text-xs text-[#666] mb-3">EMI options at 15% p.a.</p>
+                    <div className="mt-4 pt-4 border-t border-[#D4AF37]/20">
+                      <p className="text-xs text-[#888] mb-3">EMI options at 15% p.a. | Choose a plan that works for you</p>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                         {emiOptions.map((months) => {
-                          const { emi, total, interest } = calculateEMI(product.price, months);
+                          const { emi, total } = calculateEMI(product.price, months);
                           return (
                             <div
                               key={months}
-                              className="bg-white/5 border border-white/10 p-3 text-center hover:border-[#D4AF37]/50 transition-colors"
+                              className="bg-white/5 border border-[#D4AF37]/20 p-3 text-center hover:border-[#D4AF37]/60 hover:bg-[#D4AF37]/5 transition-all cursor-pointer rounded-sm"
                             >
                               <p className="text-[#D4AF37] font-['JetBrains_Mono'] font-semibold text-sm">
                                 {formatPrice(emi)}
@@ -210,7 +249,7 @@ export default function ProductDetail() {
             </div>
 
             {/* Quantity + Add to Cart */}
-            <div className="flex flex-col sm:flex-row gap-4 mb-8">
+            <div className="flex flex-col sm:flex-row gap-4 mb-6">
               <div className="flex items-center border border-white/20 h-14">
                 <button
                   onClick={() => setQuantity(Math.max(1, quantity - 1))}
@@ -243,7 +282,7 @@ export default function ProductDetail() {
                 className="flex-1 h-14 bg-gradient-to-r from-[#D4AF37] via-[#E8D44D] to-[#D4AF37] text-[#0A0A0A] font-semibold uppercase tracking-[0.05em] rounded-none hover:shadow-[0_0_30px_rgba(212,175,55,0.3)] hover:scale-[1.02] transition-all duration-300 disabled:opacity-40 text-sm"
               >
                 <ShoppingCart size={18} className="mr-2" />
-                Add to Cart — {formatPrice(product.price * quantity)}
+                Add to Cart &mdash; {formatPrice(product.price * quantity)}
               </Button>
 
               <Button
@@ -266,7 +305,8 @@ export default function ProductDetail() {
               </Button>
             </div>
 
-            <div className="flex gap-3 mb-8">
+            {/* Wishlist */}
+            <div className="flex gap-3 mb-6">
               <button
                 onClick={() => toggleWishlist(product.id)}
                 className={`flex items-center gap-2 px-5 py-3 border text-sm transition-all ${
@@ -280,7 +320,22 @@ export default function ProductDetail() {
               </button>
             </div>
 
-            {/* Trust Badges */}
+            {/* Trust Badges - Horizontal Row */}
+            <div className="flex flex-wrap items-center justify-between gap-3 bg-white/[0.02] border border-white/[0.06] p-4 mb-10 rounded-sm">
+              {[
+                { icon: Award, label: '2 Year Warranty' },
+                { icon: Truck, label: 'Free Shipping' },
+                { icon: MapPin, label: 'Made in India' },
+                { icon: BadgeCheck, label: 'BIS Certified' },
+              ].map((badge) => (
+                <div key={badge.label} className="flex items-center gap-2">
+                  <badge.icon size={18} className="text-[#D4AF37] shrink-0" />
+                  <span className="text-[0.8125rem] text-[#A0A0A0] whitespace-nowrap">{badge.label}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Service Badges */}
             <div className="grid grid-cols-3 gap-4 mb-10">
               {[
                 { icon: Truck, label: 'Free Shipping', sub: 'Orders above ₹20,000' },
@@ -334,7 +389,7 @@ export default function ProductDetail() {
                       {[
                         '14-stage purification with NF+RO dual membrane',
                         'AI-powered auto-switching based on water quality',
-                        'Retains 40% of essential Ca²⁺ and Mg²⁺ minerals',
+                        'Retains 40% of essential Ca\u00b2\u207a and Mg\u00b2\u207a minerals',
                         'Customizable TDS output (80-300 ppm)',
                         'IoT connectivity with mobile app control',
                         '2.4" TFT touchscreen display',
