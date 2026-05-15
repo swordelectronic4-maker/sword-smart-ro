@@ -1,4 +1,5 @@
 // @ts-nocheck
+// v22.1 - OpenCart-style admin panel
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import AdminDashboard from './admin/Dashboard';
