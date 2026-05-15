@@ -405,7 +405,7 @@ export default function Admin() {
       <div className="min-h-screen bg-[#0A0A0A] flex items-center justify-center">
         <div className="text-center">
           <div className="w-10 h-10 border-2 border-[#D4AF37] border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-[#A0A0A0] text-sm">Redirecting to login...</p>
+          <p className="text-[#A0A0A0] text-sm">Checking admin access...</p>
         </div>
       </div>
     );
